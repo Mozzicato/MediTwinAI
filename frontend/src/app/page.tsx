@@ -9,6 +9,7 @@ type Explanation = { text: string; evidence: { label: string }[] };
 type AnatomyContext = { available: boolean; message: string };
 type HealthSignal = { type: "ATTENTION" | "INFORMATION" | "URGENT"; severity: string; system: string; evidence: string[] };
 type ClinicalReadiness = { mode: "demo" | "clinical"; ready: boolean; missing: string[] };
+type AuthUser = { id: string; email: string };
 
 const fallbackPatient: Patient = { name: "David", age: 28, sex: "male" };
 const fallbackEvents: TimelineEvent[] = [
@@ -21,6 +22,10 @@ export default function Home() {
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>(["Fatigue", "Increased thirst", "Frequent urination"]);
   const [analysisReady, setAnalysisReady] = useState(false);
   const [hasEnteredDemo, setHasEnteredDemo] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup" | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authMessage, setAuthMessage] = useState("");
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [analysisMessage, setAnalysisMessage] = useState("The deterministic signal engine does not diagnose.");
   const [activeView, setActiveView] = useState<"overview" | "timeline" | "symptoms">("overview");
   const [patient, setPatient] = useState<Patient>(fallbackPatient);
@@ -98,7 +103,14 @@ export default function Home() {
         const response = await fetch(`${apiBase}/api/clinical-readiness`);
         const readiness = await response.json() as ClinicalReadiness;
         setClinicalReadiness(readiness);
-        if (readiness.mode === "demo") void loadDemoTwin();
+        if (readiness.mode === "demo") {
+          void loadDemoTwin();
+          const authResponse = await fetch(`${apiBase}/api/auth/me`);
+          if (authResponse.ok) {
+            const auth = await authResponse.json() as { user: AuthUser | null };
+            setAuthUser(auth.user);
+          }
+        }
       } catch {
         setDataStatus("Service configuration unavailable");
         setLoadingStage("We couldn't verify whether this environment is safe to load health data.");
@@ -107,6 +119,34 @@ export default function Home() {
     };
     void checkClinicalReadiness();
   }, [apiBase]);
+
+  const submitAuth = async (formData: FormData) => {
+    if (!authMode) return;
+    setIsAuthenticating(true);
+    setAuthMessage("");
+    try {
+      const response = await fetch(`${apiBase}/api/auth/${authMode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.get("email"), password: formData.get("password") }),
+      });
+      const payload = await response.json() as { user?: AuthUser; detail?: string };
+      if (!response.ok || !payload.user) throw new Error(payload.detail ?? "We couldn't complete that request.");
+      setAuthUser(payload.user);
+      setAuthMode(null);
+      setHasEnteredDemo(true);
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : "We couldn't complete that request.");
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const signOut = async () => {
+    await fetch(`${apiBase}/api/auth/signout`, { method: "POST" });
+    setAuthUser(null);
+    setHasEnteredDemo(false);
+  };
   const toggleSymptom = (symptom: string) => {
     setSelectedSymptoms((current) => current.includes(symptom) ? current.filter((item) => item !== symptom) : [...current, symptom]);
     setAnalysisReady(false);
@@ -146,13 +186,17 @@ export default function Home() {
     <section className="activation-panel"><a className="brand" href="#top"><span className="brand-mark">M</span><span>MediTwin</span></a><span className="eyebrow">CLINICAL ENVIRONMENT</span><h1>Clinical access is not activated.</h1><p>This environment is configured for real health data. MediTwin will not load synthetic records or accept clinical information until the required security, identity, and integration services are verified.</p><div className="activation-list"><b>Required before access</b><ul><li>Identity and consent enforcement</li><li>Encrypted clinical-data storage</li><li>Verified OntoMorph and HOLON integrations</li><li>Audit logging and operational monitoring</li></ul></div><p className="activation-note">Configure the server-only production variables and complete clinical governance approval before enabling patient access.</p></section>
   </main>;
 
+  if (authMode) return <main className="auth-shell">
+    <section className="auth-panel"><button className="auth-back" onClick={() => setAuthMode(null)}>Back</button><a className="brand" href="#top"><span className="brand-mark">M</span><span>MediTwin</span></a><span className="eyebrow">LOCAL DEVELOPMENT ACCOUNT</span><h1>{authMode === "signup" ? "Create your workspace." : "Welcome back."}</h1><p>{authMode === "signup" ? "Create an email and password to enter the local MediTwin experience." : "Sign in to continue to your health workspace."}</p><form action={submitAuth} className="auth-form"><label>Email<input name="email" type="email" autoComplete="email" required placeholder="you@example.com" /></label><label>Password<input name="password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} required minLength={8} placeholder="At least 8 characters" /></label>{authMessage && <p className="auth-error" role="alert">{authMessage}</p>}<button className="primary-button" disabled={isAuthenticating}>{isAuthenticating ? "Please wait..." : authMode === "signup" ? "Create local account" : "Sign in"}</button></form><p className="auth-switch">{authMode === "signup" ? "Already have an account?" : "New to MediTwin?"} <button onClick={() => setAuthMode(authMode === "signup" ? "signin" : "signup")}>{authMode === "signup" ? "Sign in" : "Create an account"}</button></p><small>This local account is for development and demo use. It is unavailable in clinical mode.</small></section>
+  </main>;
+
   if (!hasEnteredDemo) return <main className="landing-shell">
-    <header className="landing-topbar"><a className="brand" href="#top"><span className="brand-mark">M</span><span>MediTwin</span></a><span className="landing-demo">Synthetic demo</span></header>
-    <section className="landing-hero" id="top"><div className="landing-copy"><span className="eyebrow">HEALTH CONTEXT, NOT DIAGNOSIS</span><h1>Understand your health.<br />See your body differently.</h1><p>MediTwin organizes health information, symptoms, and clinical context into a personal digital representation designed to make patterns easier to understand.</p><button className="explore-button" onClick={() => setHasEnteredDemo(true)}>Explore David&apos;s demo twin <span aria-hidden="true">&#8594;</span></button><small>Synthetic health data only. MediTwin does not provide medical diagnoses.</small></div><div className="landing-visual" aria-hidden="true"><div className="visual-orbit orbit-one" /><div className="visual-orbit orbit-two" /><div className="visual-core"><span>DAVID</span><b>Demo twin</b><i>Metabolic attention</i></div><div className="visual-caption">Health data<br />Clinical context<br />Appropriate next step</div></div></section>
+    <header className="landing-topbar"><a className="brand" href="#top"><span className="brand-mark">M</span><span>MediTwin</span></a>{authUser ? <span className="account-label">{authUser.email}</span> : <button className="sign-in-button" onClick={() => setAuthMode("signin")}>Sign in</button>}</header>
+    <section className="landing-hero" id="top"><div className="landing-copy"><span className="eyebrow">PERSONAL HEALTH CONTEXT</span><h1>Make sense of what your body is telling you.</h1><p>Bring health data, symptoms, and clinical context into one calm, evidence-led view. MediTwin helps you prepare for more informed conversations with your care team.</p><button className="explore-button" onClick={() => authUser ? setHasEnteredDemo(true) : setAuthMode("signup")}>{authUser ? "Open your workspace" : "Create your workspace"} <span aria-hidden="true">&#8594;</span></button><small>Synthetic health data only. MediTwin does not provide medical diagnoses.</small></div><div className="landing-visual" aria-hidden="true"><div className="visual-orbit orbit-one" /><div className="visual-orbit orbit-two" /><div className="visual-core"><span>HEALTH TWIN</span><b>One connected view</b><i>Evidence before explanation</i></div><div className="visual-caption">Your data<br />Clinical context<br />Appropriate next step</div></div></section>
   </main>;
 
   return <main className="app-shell">
-    <header className="topbar"><a className="brand" href="#overview"><span className="brand-mark">M</span><span>MediTwin</span></a><div className="demo-chip"><span className="demo-dot" /> Demo environment</div><p className="synthetic-notice">Synthetic health data only. Not a diagnosis.</p></header>
+    <header className="topbar"><a className="brand" href="#overview"><span className="brand-mark">M</span><span>MediTwin</span></a><div className="demo-chip"><span className="demo-dot" /> Demo environment</div><p className="synthetic-notice">Synthetic health data only. Not a diagnosis.</p>{authUser && <button className="account-menu" onClick={() => void signOut()} title="Sign out">{authUser.email}<span>Sign out</span></button>}</header>
     <section className="workspace">
       <aside className="sidebar" aria-label="Digital twin navigation">
         <div className="patient-card"><span className="eyebrow">DIGITAL TWIN</span><div className="avatar">{patient.name.charAt(0)}</div><h1>{patient.name}</h1><p>{patient.age} years old <span aria-hidden="true">&#183;</span> {patient.sex}</p><span className="synthetic-label">Synthetic demo patient</span></div>

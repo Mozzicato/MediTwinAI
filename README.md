@@ -33,6 +33,14 @@ The Next.js app includes same-origin synthetic API routes for the demo flow. Set
 
 Do not add `ONTOMORPH_API_KEY`, `HOLON_API_KEY`, or LLM credentials to browser-visible `NEXT_PUBLIC_*` variables.
 
+## Local Accounts
+
+Demo mode includes an in-house email/password sign-up and sign-in flow. Accounts are persisted in Turso, passwords are hashed server-side, and browser sessions use HTTP-only cookies.
+
+For local Next.js development, copy `frontend/.env.example` to `frontend/.env.local`, then provide `DATABASE_URL`, `TURSO_AUTH_TOKEN`, and a long random `LOCAL_AUTH_SESSION_SECRET`. For Vercel, add those three values as server-side environment variables in the project configuration. Never use `NEXT_PUBLIC_` for database credentials or the session secret.
+
+This is still a demo account flow, not clinical identity or authorization. It must not be used for patient identity, consent, authorization, or real health records. Clinical mode disables local authentication.
+
 ## Clinical Mode
 
 Set `MEDITWIN_APP_MODE=clinical` only in a controlled production environment. The app then fails closed: it does not load synthetic records and displays an activation screen until the server-side clinical configuration is complete.
