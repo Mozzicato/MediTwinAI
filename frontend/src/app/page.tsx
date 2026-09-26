@@ -8,6 +8,7 @@ type TimelineEvent = { date: string; name: string; value: string; detail: string
 type Explanation = { text: string; evidence: { label: string }[] };
 type AnatomyContext = { available: boolean; message: string };
 type HealthSignal = { type: "ATTENTION" | "INFORMATION" | "URGENT"; severity: string; system: string; evidence: string[] };
+type ClinicalReadiness = { mode: "demo" | "clinical"; ready: boolean; missing: string[] };
 
 const fallbackPatient: Patient = { name: "David", age: 28, sex: "male" };
 const fallbackEvents: TimelineEvent[] = [
@@ -41,6 +42,7 @@ export default function Home() {
     system: "Metabolic",
     evidence: ["fasting_glucose_above_reference", "fatigue", "polydipsia", "polyuria"],
   });
+  const [clinicalReadiness, setClinicalReadiness] = useState<ClinicalReadiness | null>(null);
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
   const loadDemoTwin = async () => {
@@ -91,7 +93,19 @@ export default function Home() {
     };
 
   useEffect(() => {
-    void loadDemoTwin();
+    const checkClinicalReadiness = async () => {
+      try {
+        const response = await fetch(`${apiBase}/api/clinical-readiness`);
+        const readiness = await response.json() as ClinicalReadiness;
+        setClinicalReadiness(readiness);
+        if (readiness.mode === "demo") void loadDemoTwin();
+      } catch {
+        setDataStatus("Service configuration unavailable");
+        setLoadingStage("We couldn't verify whether this environment is safe to load health data.");
+        setIsLoading(false);
+      }
+    };
+    void checkClinicalReadiness();
   }, [apiBase]);
   const toggleSymptom = (symptom: string) => {
     setSelectedSymptoms((current) => current.includes(symptom) ? current.filter((item) => item !== symptom) : [...current, symptom]);
@@ -123,6 +137,14 @@ export default function Home() {
     }
     setAnalysisReady(true);
   };
+
+  if (clinicalReadiness === null) return <main className="activation-shell">
+    <section className="activation-panel"><a className="brand" href="#top"><span className="brand-mark">M</span><span>MediTwin</span></a><span className="eyebrow">SECURE ENVIRONMENT CHECK</span><h1>Preparing your health workspace.</h1><p>MediTwin is verifying the environment before it displays any health information.</p></section>
+  </main>;
+
+  if (clinicalReadiness.mode === "clinical") return <main className="activation-shell">
+    <section className="activation-panel"><a className="brand" href="#top"><span className="brand-mark">M</span><span>MediTwin</span></a><span className="eyebrow">CLINICAL ENVIRONMENT</span><h1>Clinical access is not activated.</h1><p>This environment is configured for real health data. MediTwin will not load synthetic records or accept clinical information until the required security, identity, and integration services are verified.</p><div className="activation-list"><b>Required before access</b><ul><li>Identity and consent enforcement</li><li>Encrypted clinical-data storage</li><li>Verified OntoMorph and HOLON integrations</li><li>Audit logging and operational monitoring</li></ul></div><p className="activation-note">Configure the server-only production variables and complete clinical governance approval before enabling patient access.</p></section>
+  </main>;
 
   if (!hasEnteredDemo) return <main className="landing-shell">
     <header className="landing-topbar"><a className="brand" href="#top"><span className="brand-mark">M</span><span>MediTwin</span></a><span className="landing-demo">Synthetic demo</span></header>

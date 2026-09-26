@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getClinicalReadiness, isClinicalMode } from "@/lib/clinical-config";
 
 const patient = { id: "demo-david", name: "David", age: 28, sex: "male", synthetic: true };
 const glucoseEvent = {
@@ -37,6 +38,9 @@ function explanationFor(symptomNames: string[]) {
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  if (isClinicalMode()) {
+    return NextResponse.json({ detail: "Clinical data access is not activated.", readiness: getClinicalReadiness() }, { status: 503 });
+  }
   const { path } = await params;
   const endpoint = path.join("/");
   if (endpoint === "demo/patient") return NextResponse.json(patient);
@@ -53,6 +57,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  if (isClinicalMode()) {
+    return NextResponse.json({ detail: "Clinical data access is not activated.", readiness: getClinicalReadiness() }, { status: 503 });
+  }
   const { path } = await params;
   const endpoint = path.join("/");
   const payload = await request.json() as SymptomPayload & { event_id?: string; symptom_names?: string[] };

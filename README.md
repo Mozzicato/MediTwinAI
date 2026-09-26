@@ -1,6 +1,6 @@
 # MediTwin AI
 
-Phase 1 web prototype for a synthetic health twin. The current scenario is David, a synthetic 28-year-old patient with a fasting glucose result above its demo reference range and structured symptom context.
+MediTwin is a health-context application designed to organize structured health information, symptoms, clinical evidence, and appropriate next-step guidance without diagnosing users.
 
 MediTwin does not diagnose, prescribe, or replace a healthcare professional.
 
@@ -22,16 +22,22 @@ npm.cmd run dev -- --port 3000
 
 Open `http://localhost:3000`.
 
-The Next.js app also includes same-origin synthetic API routes for the complete demo flow, so it runs by itself without FastAPI. Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` only when developing against the Python API.
+The Next.js app includes same-origin synthetic API routes for the demo flow. Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` only when developing against the Python API.
 
-## Deploy To Vercel
+## Demo Deployment
 
 1. Push this repository to GitHub.
 2. Import it in Vercel and set **Root Directory** to `frontend`.
 3. Leave `NEXT_PUBLIC_API_BASE_URL` unset to use the Vercel-hosted synthetic API routes.
-4. Deploy. The app has no required environment variables for the synthetic prototype.
+4. Deploy with `MEDITWIN_APP_MODE=demo` for the synthetic scenario.
 
 Do not add `ONTOMORPH_API_KEY`, `HOLON_API_KEY`, or LLM credentials to browser-visible `NEXT_PUBLIC_*` variables.
+
+## Clinical Mode
+
+Set `MEDITWIN_APP_MODE=clinical` only in a controlled production environment. The app then fails closed: it does not load synthetic records and displays an activation screen until the server-side clinical configuration is complete.
+
+Clinical mode is not a production clearance. Review [docs/CLINICAL_LAUNCH.md](docs/CLINICAL_LAUNCH.md) before collecting or processing any real health information.
 
 ## Validation
 
@@ -53,8 +59,8 @@ python -m unittest discover -s "$PWD\backend\tests" -p "test_*.py"
 - `POST /api/explanations`
 - `GET /api/anatomy/{system}`
 
-The API returns synthetic demo data. The anatomy route explicitly reports unavailable because an OntoMorph visualization has not been configured.
+In demo mode the API returns synthetic data. The anatomy route explicitly reports unavailable because an OntoMorph visualization has not been configured.
 
 ## Integration Boundary
 
-Keep external credentials server-side in `.env`; it is ignored by Git. Start from `.env.example` for variable names. The current UI intentionally does not claim that OntoMorph or HOLON is connected. Before enabling a live connection, add server-side adapters that authenticate with the documented API, normalize returned data, preserve source provenance, and return graceful errors for unavailable services.
+Keep external credentials server-side in `.env`; it is ignored by Git. Start from `.env.example` for variable names. The current UI intentionally does not claim that OntoMorph or HOLON is connected. Before enabling a live connection, add authenticated server-side adapters, a production data model, consent, authorization, source provenance, and graceful external-service error handling.
