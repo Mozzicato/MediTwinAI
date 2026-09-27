@@ -1,0 +1,437 @@
+{
+ "capturedAt": "2026-09-27",
+ "note": "Synthetic events from the OntoMorph DTP sandbox cohort, captured for offline unit tests.",
+ "metabolic": [
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0008",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "device_reading",
+   "occurredAt": "2026-09-25T15:51:35Z",
+   "title": "Continuous Glucose Monitor — daily average",
+   "data": {
+    "unit": "mg/dL",
+    "device": "CGM",
+    "metric": "glucose",
+    "system": "metabolic",
+    "averageValue": 156,
+    "timeInRangePct": 62
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0009",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "symptom",
+   "occurredAt": "2026-09-11T15:51:35Z",
+   "title": "Polyuria and increased thirst",
+   "data": {
+    "system": "metabolic",
+    "symptom": "polyuria",
+    "severity": "mild",
+    "durationDays": 5
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0011",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "clinical_note",
+   "occurredAt": "2026-09-06T15:51:35Z",
+   "title": "Endocrinology visit note",
+   "data": {
+    "note": "Patient reports improved dietary adherence; HbA1c trending down. Continue current regimen, recheck in 3 months.",
+    "system": "metabolic"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0003",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "lab_result",
+   "occurredAt": "2026-09-06T15:51:35Z",
+   "title": "HbA1c",
+   "data": {
+    "unit": "%",
+    "value": 7.1,
+    "status": "high",
+    "system": "metabolic",
+    "testName": "HbA1c",
+    "loinc_code": "4548-4",
+    "loinc_display": "Hemoglobin A1c",
+    "referenceRange": "4.0-5.6"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0005",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "vital_sign",
+   "occurredAt": "2026-08-27T15:51:35Z",
+   "title": "Body Weight",
+   "data": {
+    "bmi": 31.3,
+    "unit": "kg",
+    "system": "metabolic",
+    "weightKg": 96
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0010",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "immunisation",
+   "occurredAt": "2026-08-12T15:51:35Z",
+   "title": "Influenza vaccine (annual)",
+   "data": {
+    "route": "intramuscular",
+    "system": "metabolic",
+    "cvxCode": "158",
+    "vaccine": "influenza"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0007",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "lab_result",
+   "occurredAt": "2026-07-28T15:51:35Z",
+   "title": "Lipid Panel",
+   "data": {
+    "hdl": 38,
+    "ldl": 138,
+    "unit": "mg/dL",
+    "status": "borderline",
+    "system": "metabolic",
+    "testName": "Lipid Panel",
+    "triglycerides": 220,
+    "totalCholesterol": 210
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0004",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "lab_result",
+   "occurredAt": "2026-05-29T15:51:35Z",
+   "title": "Fasting Plasma Glucose",
+   "data": {
+    "unit": "mg/dL",
+    "value": 142,
+    "status": "high",
+    "system": "metabolic",
+    "testName": "Fasting Glucose",
+    "referenceRange": "70-99"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0002",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "lab_result",
+   "occurredAt": "2026-05-29T15:51:35Z",
+   "title": "HbA1c",
+   "data": {
+    "unit": "%",
+    "value": 8.2,
+    "status": "high",
+    "system": "metabolic",
+    "testName": "HbA1c",
+    "loinc_code": "4548-4",
+    "loinc_display": "Hemoglobin A1c",
+    "referenceRange": "4.0-5.6"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0006",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "medication",
+   "occurredAt": "2026-03-20T15:51:35Z",
+   "title": "Metformin 1000mg",
+   "data": {
+    "dosage": "1000mg",
+    "rxNorm": "861007",
+    "status": "active",
+    "system": "metabolic",
+    "frequency": "twice daily"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000b0001",
+   "twinId": "5a4d0000-0000-0000-0000-000000000102",
+   "eventType": "diagnosis",
+   "occurredAt": "2026-03-10T15:51:35Z",
+   "title": "Type 2 diabetes mellitus without complications",
+   "data": {
+    "status": "active",
+    "system": "metabolic",
+    "icdCode": "E11.9",
+    "severity": "moderate"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  }
+ ],
+ "cardiovascular": [
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0004",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "vital_sign",
+   "occurredAt": "2026-09-19T15:51:35Z",
+   "title": "Blood Pressure",
+   "data": {
+    "unit": "mmHg",
+    "system": "cardiovascular",
+    "systolic": 132,
+    "diastolic": 84,
+    "heartRate": 71
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0003",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "vital_sign",
+   "occurredAt": "2026-07-28T15:51:35Z",
+   "title": "Blood Pressure",
+   "data": {
+    "unit": "mmHg",
+    "system": "cardiovascular",
+    "systolic": 138,
+    "diastolic": 88,
+    "heartRate": 76
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0012",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "encounter",
+   "occurredAt": "2026-07-28T15:51:35Z",
+   "title": "Cardiology follow-up visit",
+   "data": {
+    "reason": "hypertension follow-up",
+    "system": "cardiovascular",
+    "provider": "Cardiology",
+    "encounterType": "outpatient"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0013",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "care_plan",
+   "occurredAt": "2026-07-28T15:51:35Z",
+   "title": "Hypertension management plan",
+   "data": {
+    "goals": [
+     "blood pressure under 130/80",
+     "10lb weight loss over 6 months"
+    ],
+    "system": "cardiovascular",
+    "reviewDate": "2027-01-24T15:51:35.143Z"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0005",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "lab_result",
+   "occurredAt": "2026-06-28T15:51:35Z",
+   "title": "Lipid Panel",
+   "data": {
+    "hdl": 44,
+    "ldl": 165,
+    "unit": "mg/dL",
+    "value": 165,
+    "status": "high",
+    "system": "cardiovascular",
+    "testName": "Lipid Panel",
+    "loinc_code": "13457-7",
+    "loinc_display": "LDL Cholesterol",
+    "triglycerides": 180,
+    "totalCholesterol": 244
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0007",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "medication",
+   "occurredAt": "2026-06-28T15:51:35Z",
+   "title": "Atorvastatin 20mg",
+   "data": {
+    "dosage": "20mg",
+    "rxNorm": "617312",
+    "status": "active",
+    "system": "cardiovascular",
+    "frequency": "once daily"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0008",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "imaging",
+   "occurredAt": "2026-06-18T15:51:35Z",
+   "title": "Transthoracic Echocardiogram",
+   "data": {
+    "system": "cardiovascular",
+    "findings": "mild left ventricular hypertrophy, no valvular abnormality",
+    "modality": "echocardiogram",
+    "ejectionFraction": 58
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0002",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "vital_sign",
+   "occurredAt": "2026-05-29T15:51:35Z",
+   "title": "Blood Pressure",
+   "data": {
+    "unit": "mmHg",
+    "system": "cardiovascular",
+    "systolic": 148,
+    "diastolic": 94,
+    "heartRate": 82
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0006",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "medication",
+   "occurredAt": "2026-04-29T15:51:35Z",
+   "title": "Amlodipine 5mg",
+   "data": {
+    "dosage": "5mg",
+    "rxNorm": "197361",
+    "status": "active",
+    "system": "cardiovascular",
+    "frequency": "once daily"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0001",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "diagnosis",
+   "occurredAt": "2026-03-30T15:51:35Z",
+   "title": "Essential (primary) hypertension",
+   "data": {
+    "status": "active",
+    "system": "cardiovascular",
+    "icdCode": "I10",
+    "severity": "moderate"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0011",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "social_history",
+   "occurredAt": "2026-03-30T15:51:35Z",
+   "title": "Former smoker — quit 2019",
+   "data": {
+    "system": "cardiovascular",
+    "quitYear": 2019,
+    "packYears": 15,
+    "smokingStatus": "former"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0014",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "referral",
+   "occurredAt": "2026-03-10T15:51:35Z",
+   "title": "Referral to Cardiology",
+   "data": {
+    "reason": "elevated blood pressure, evaluate for LVH",
+    "system": "cardiovascular",
+    "urgency": "routine",
+    "referredTo": "Cardiology"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0010",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "family_history",
+   "occurredAt": "2025-09-26T15:51:35Z",
+   "title": "Father — myocardial infarction at 62",
+   "data": {
+    "system": "cardiovascular",
+    "relation": "father",
+    "condition": "myocardial infarction",
+    "ageAtOnset": 62
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  },
+  {
+   "id": "5a4d0000-0000-0000-0000-0000000a0009",
+   "twinId": "5a4d0000-0000-0000-0000-000000000101",
+   "eventType": "allergy",
+   "occurredAt": "2025-09-26T15:51:35Z",
+   "title": "Penicillin allergy",
+   "data": {
+    "system": "cardiovascular",
+    "reaction": "hives",
+    "severity": "moderate",
+    "substance": "penicillin"
+   },
+   "source": {
+    "plugin": "dtp.sandbox.seed"
+   }
+  }
+ ]
+}

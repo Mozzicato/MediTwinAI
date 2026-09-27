@@ -21,4 +21,6 @@
 
 ## Release Gate
 
-Do not activate patient access until every item above has an accountable owner and written approval. The current codebase intentionally does not implement real-patient ingestion, authentication, consent, persistence, or vendor adapters; it is blocked in clinical mode until those components exist.
+Do not activate patient access until every item above has an accountable owner and written approval. Set `CLINICAL_CONTENT_APPROVAL_ID` only once the reviewed content set (`frontend/src/domain/content.ts`: symptom codes, symptom→measurement relevance, anatomy mapping, red-flag rules and care guidance) has been signed off by a licensed clinician.
+
+The current codebase implements OntoMorph DTP and HOLON adapters for the **sandbox** only (`frontend/src/server/ontomorph`). It intentionally does not implement real-patient grant issuance, identity, consent, persistence of health data, or production DTP access. Clinical mode stays blocked until those components exist.
