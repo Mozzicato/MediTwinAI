@@ -19,6 +19,15 @@ People meet health information in pieces: a lab PDF, a medication list, a sympto
 7. **Gives a next step.** Care guidance and emergency advice come from a reviewed content set, never from the model.
 8. **Closes the loop.** The person can run a what-if projection (`twin.simulate`, lifestyle vs no change), write the signal back to the twin as a clinical note (`twin.flag`), and print a visit summary for their clinician.
 
+## A real product, not only a demo
+
+Anyone can create an account, give informed consent, and build their own health twin:
+- connect their OntoMorph twin by pasting the grant token they issue in OntoMorph (verified live, stored encrypted)
+- add their own lab and vital results (LOINC-coded, unit-converted, optionally written back to their twin)
+- run symptom check-ins that are remembered, so recurring symptoms are recognised
+
+Health data is AES-256-GCM encrypted at rest. People can export everything or delete their account at any time. Sample twins remain available for anyone who wants to try it first.
+
 ## Who it's for
 
 - **Primary:** health-conscious adults and people living with a long-term condition who want to understand their own results and decide when to seek care.

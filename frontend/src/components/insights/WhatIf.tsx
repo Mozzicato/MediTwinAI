@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Spinner } from "@/components/ui/primitives";
 import type { SimulationComparison, SimulationType } from "@/domain/types";
-import { api } from "@/lib/api";
 import { ms } from "@/lib/format";
 
 const LABELS: Record<SimulationType, { title: string; metric: string }> = {
@@ -25,7 +24,9 @@ function outputRows(outputs: Record<string, unknown>, unit: string) {
   return rows;
 }
 
-export function WhatIf({ twinId, types, onTrace }: { twinId: string; types: SimulationType[]; onTrace: (entries: SimulationComparison["trace"]) => void }) {
+export function WhatIf({ run: runSimulation, types, onTrace }: {
+  run: (type: SimulationType, months: number) => Promise<SimulationComparison>; types: SimulationType[]; onTrace: (entries: SimulationComparison["trace"]) => void;
+}) {
   const [type, setType] = useState<SimulationType>(types[0]);
   const [months, setMonths] = useState(6);
   const [result, setResult] = useState<SimulationComparison | null>(null);
@@ -34,7 +35,7 @@ export function WhatIf({ twinId, types, onTrace }: { twinId: string; types: Simu
 
   const run = async () => {
     setRunning(true); setError(null);
-    try { const next = await api.simulate(twinId, type, months); setResult(next); onTrace(next.trace); }
+    try { const next = await runSimulation(type, months); setResult(next); onTrace(next.trace); }
     catch (e) { setError(e instanceof Error ? e.message : "The simulation could not be run."); }
     finally { setRunning(false); }
   };

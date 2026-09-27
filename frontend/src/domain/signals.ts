@@ -151,7 +151,8 @@ export function runSignalEngine({ events, symptoms, now }: EngineInput): HealthS
 
     const reported = reportedHere.map(reportedEvidence);
     const recordedEvidence = recordedHere.map(({ event }): EvidenceItem => ({
-      id: `rs:${event.id}`, kind: "RECORDED_SYMPTOM", label: `${event.title} (recorded in twin)`,
+      id: `rs:${event.id}`, kind: "RECORDED_SYMPTOM",
+      label: `${event.title} (${event.sourcePlugin === "meditwin.checkin" ? "your earlier check-in" : "recorded in twin"})`,
       detail: `Recorded on ${formatDate(event.occurredAt)}${event.summary ? ` · ${event.summary}` : ""}.`, source: "TWIN_RECORD", system,
     }));
     const conditions = events
@@ -187,7 +188,7 @@ export function runSignalEngine({ events, symptoms, now }: EngineInput): HealthS
         id: `signal-${system}-symptoms`, type: "INFORMATION", severity: "LOW", system, systemLabel: label,
         title: `${label}: symptoms without related measurements`, ruleId: "SIG-INF-02",
         rule: "Symptoms were reported, but the twin has no out-of-range measurements for this body system.",
-        evidence: [...reported, ...conditions], source: "SYSTEM_GENERATED",
+        evidence: [...reported, ...recordedEvidence, ...conditions], source: "SYSTEM_GENERATED",
       });
     }
   }

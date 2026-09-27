@@ -1,7 +1,10 @@
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import type { SessionUser } from "@/lib/local-auth";
+import { requireUser } from "./session";
 import { z } from "zod";
 import { getClinicalReadiness, isClinicalMode } from "@/lib/clinical-config";
+import { HttpError } from "./http-error";
 import { DtpError } from "./ontomorph/dtp";
 import { Trace } from "./trace";
 
@@ -32,6 +35,7 @@ export async function handle(label: string, run: (trace: Trace) => Promise<unkno
     const result = await run(trace);
     return result instanceof NextResponse ? result : NextResponse.json(result);
   } catch (error) {
+    if (error instanceof HttpError) return NextResponse.json({ detail: error.message, ...error.extra }, { status: error.status });
     if (error instanceof DtpError) {
       const status = error.status === 404 ? 404 : error.status >= 400 && error.status < 500 ? 422 : 502;
       const detail = status === 404 ? "We couldn't find that digital twin."
@@ -42,4 +46,13 @@ export async function handle(label: string, run: (trace: Trace) => Promise<unkno
     console.error(JSON.stringify({ at: new Date().toISOString(), request: label, error: error instanceof Error ? error.message : String(error) }));
     return NextResponse.json({ detail: "Something went wrong while preparing your health view. Please try again.", trace: trace.entries }, { status: 500 });
   }
+}
+
+/** Clinical gate + signed-in user + trace, for personal-data routes. */
+export async function withUser(request: NextRequest, label: string, run: (user: SessionUser, trace: Trace) => Promise<unknown>) {
+  const gate = clinicalGate();
+  if (gate) return gate;
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+  return handle(label, (trace) => run(user, trace));
 }

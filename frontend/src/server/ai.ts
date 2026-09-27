@@ -138,7 +138,8 @@ export async function explainWithAi(
 
   const evidence = signal.evidence.map(({ id, kind, label, detail, source }) => ({ id, kind, label, detail, source }));
   const payload = {
-    person: { first_name: persona.name, age: persona.age, sex: persona.sex, note: "Synthetic demo persona" },
+    // No name or contact details: the model only needs age and sex to phrase the evidence.
+    person: { age: persona.age, sex: persona.sex },
     signal: { type: signal.type, severity: signal.severity, body_system: signal.systemLabel, rule: signal.rule },
     evidence,
   };

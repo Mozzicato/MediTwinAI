@@ -76,7 +76,7 @@ export function buildTemplateExplanation(signal: HealthSignal | null, fallbackRe
     if (reported.length || recorded.length) {
       const parts: string[] = [];
       if (reported.length) parts.push(`you reported ${listJoin(reported.map((e) => lowerFirst(e.label.replace(" (reported today)", ""))))} today`);
-      if (recorded.length) parts.push(`your twin recorded ${listJoin(recorded.map((e) => `“${e.label.replace(" (recorded in twin)", "")}”`))} recently`);
+      if (recorded.length) parts.push(`${recorded.every((e) => e.label.endsWith("(your earlier check-in)")) ? "you reported" : "your twin recorded"} ${listJoin(recorded.map((e) => `“${e.label.replace(/ \((recorded in twin|your earlier check-in)\)$/, "")}”`))} recently`);
       paragraphs.push(block(`In addition, ${listJoin(parts)}. Symptoms like these can happen for several different reasons.`, [...reported, ...recorded]));
     }
 

@@ -175,7 +175,7 @@ const UNIT_ALIASES: Record<string, string> = {
   "bpm": "/min", "beats/min": "/min", "/min": "/min",
   "mmhg": "mm[hg]", "mm[hg]": "mm[hg]",
   "kg/m2": "kg/m2", "kg/m^2": "kg/m2",
-  "mg/dl": "mg/dl", "mmol/l": "mmol/l", "%": "%", "u/l": "u/l", "miu/l": "miu/l",
+  "mg/dl": "mg/dl", "mmol/l": "mmol/l", "µmol/l": "umol/l", "umol/l": "umol/l", "%": "%", "u/l": "u/l", "miu/l": "miu/l",
   "10*3/ul": "10*3/ul", "10^3/ul": "10*3/ul", "10*6/ul": "10*6/ul", "g/dl": "g/dl", "kg": "kg",
 };
 
@@ -189,7 +189,20 @@ export const UNIT_CONVERSIONS: Record<string, { from: string; to: string; factor
   // Glucose: 1 mmol/L = 18.016 mg/dL
   "2345-7": [{ from: "mmol/l", to: "mg/dl", factor: 18.016 }],
   "97507-8": [{ from: "mmol/l", to: "mg/dl", factor: 18.016 }],
+  // Cholesterol: 1 mmol/L = 38.67 mg/dL; triglycerides: 1 mmol/L = 88.57 mg/dL; creatinine: 88.42 µmol/L = 1 mg/dL
+  "2093-3": [{ from: "mmol/l", to: "mg/dl", factor: 38.67 }],
+  "13457-7": [{ from: "mmol/l", to: "mg/dl", factor: 38.67 }],
+  "2085-9": [{ from: "mmol/l", to: "mg/dl", factor: 38.67 }],
+  "2571-8": [{ from: "mmol/l", to: "mg/dl", factor: 88.57 }],
+  "2160-0": [{ from: "umol/l", to: "mg/dl", factor: 1 / 88.42 }],
 };
+
+/** Measurement key for a LOINC code, so values from any source share one history. */
+export const LOINC_KEY: Record<string, MeasurementContent> = Object.fromEntries(
+  [...Object.values(TEST_NAME_LOINC), ...Object.values(MEASUREMENT_FIELDS)]
+    .filter((m): m is MeasurementContent & { loinc: string } => Boolean(m.loinc))
+    .map((m) => [m.loinc, m]),
+);
 
 // ---- Signal rules (FR-011) -----------------------------------------------------------------
 

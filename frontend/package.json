@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "test:live": "vitest run --mode live tests/live.integration.test.ts"
+    "test:live": "vitest run --mode live tests/live"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

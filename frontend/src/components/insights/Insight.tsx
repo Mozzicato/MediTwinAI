@@ -20,8 +20,8 @@ function Guidance({ guidance }: { guidance: CareGuidance }) {
   </section>;
 }
 
-export function Insight({ result, name, onEditSymptoms, onSummary, onWhatIf, canSimulate, onFlag, flag, tourTarget }: {
-  result: AnalysisResult; name: string; onEditSymptoms: () => void; onSummary: () => void; onWhatIf: () => void; canSimulate: boolean;
+export function Insight({ result, name, canFlag, onEditSymptoms, onSummary, onWhatIf, canSimulate, onFlag, flag, tourTarget }: {
+  result: AnalysisResult; name: string; canFlag: boolean; onEditSymptoms: () => void; onSummary: () => void; onWhatIf: () => void; canSimulate: boolean;
   onFlag: () => void; flag: FlagState; tourTarget?: string | null;
 }) {
   const [selectedOrgan, setSelectedOrgan] = useState<OrganId | null>(null);
@@ -104,10 +104,10 @@ export function Insight({ result, name, onEditSymptoms, onSummary, onWhatIf, can
       <ul>{explanation.questions.map((q) => <li key={q.text}>{q.text}</li>)}</ul>
     </section>}
 
-    {primary && !urgent && <section className="card writeback">
+    {primary && !urgent && canFlag && <section className="card writeback">
       <div>
         <span className="eyebrow">Share with the digital twin</span>
-        <h3>Save this signal to {name}&apos;s twin</h3>
+        <h3>Save this signal to {name} twin</h3>
         <p className="muted">Writes a clinical note back to the OntoMorph twin (twin.flag), so the signal becomes part of the record other tools and clinicians can see. MediTwin recomputes the signal on the server before writing.</p>
         {flag.message && <p className={flag.status === "error" ? "error-text" : "success-text"} role="status">{flag.message}</p>}
       </div>

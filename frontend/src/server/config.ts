@@ -16,6 +16,7 @@ function llmConfig(): { provider: LlmProvider; model: string; label: string; gro
 export const config = {
   // DTP_LIVE_PERSONAL is accepted as an alias so an existing .env works unchanged.
   ontomorphApiKey: process.env.ONTOMORPH_API_KEY ?? process.env.DTP_LIVE_PERSONAL ?? "",
+  ontomorphApiUrl: process.env.ONTOMORPH_BASE_URL ?? "https://api.ontomorph.com",
   ontomorphSandboxUrl: process.env.ONTOMORPH_SANDBOX_URL ?? "https://sandbox-api.ontomorph.com",
   holonApiKey: process.env.HOLON_API_KEY ?? "",
   holonBaseUrl: process.env.HOLON_BASE_URL ?? "https://holon-api.ontomorph.com",

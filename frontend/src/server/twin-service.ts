@@ -11,7 +11,7 @@ import type {
   SystemStatus, SystemSummary, TwinView,
 } from "@/domain/types";
 import { explainWithAi } from "./ai";
-import { DtpError, decodeGrant, flagEvent, grantFor, listEvents, sandboxGrants, simulate } from "./ontomorph/dtp";
+import { DtpError, decodeGrant, flagEvent, grantFor, listEvents, sandboxGrants, simulate, type TwinAccess } from "./ontomorph/dtp";
 import { HolonUnavailableError, checkInteractions, phenotypeMatch, referenceRanges, resolveConcept, type HolonRange } from "./ontomorph/holon";
 import type { Trace } from "./trace";
 
@@ -77,9 +77,23 @@ export async function loadTwin(trace: Trace, twinId: string, options: { fresh?: 
   const index = grants.findIndex((g) => g.twinId === twinId);
   if (index === -1) throw new DtpError("This twin isn't available in the OntoMorph sandbox", "NOT_FOUND", 404);
   const grant = grants[index];
-  const persona = personaFor(twinId, index);
-  const claims = decodeGrant(grant.grantToken);
   const raw = await listEvents(trace, grant);
+  const view = await buildView(trace, { persona: personaFor(twinId, index), twinId, raw, grantToken: grant.grantToken, canSimulate: true });
+  twinCache.set(twinId, { expires: Date.now() + TWIN_CACHE_MS, view });
+  return view;
+}
+
+/**
+ * Turn raw twin-shaped events into a TwinView: HOLON concepts, reference ranges and anatomy,
+ * medication checks, baseline signals and system summaries. Shared by sample twins and by a
+ * person's own data (their OntoMorph twin plus the results they entered).
+ */
+export async function buildView(trace: Trace, input: {
+  persona: Persona; twinId: string; raw: DtpEvent[]; grantToken?: string; canSimulate: boolean;
+}): Promise<TwinView> {
+  const { persona, twinId, raw } = input;
+  const claims = input.grantToken ? decodeGrant(input.grantToken) : null;
+  const sexForRanges = persona.sex === "unspecified" ? "" : persona.sex;
 
   // Resolve everything HOLON can tell us, in parallel and de-duplicated.
   const extracted = raw.map((event) => ({ event, measurements: extractMeasurements(event), concepts: extractConcepts(event) }));
@@ -90,7 +104,7 @@ export async function loadTwin(trace: Trace, twinId: string, options: { fresh?: 
   const systemsPresent = [...new Set(raw.map((e) => String(e.data?.system ?? "unspecified")))];
 
   const [rangeEntries, conceptEntries, anatomyEntries] = await Promise.all([
-    Promise.all(loincs.map(async (loinc) => [loinc, pickRange(await soft(() => referenceRanges(trace, loinc, persona.age, persona.sex), []), persona, loinc)] as const)),
+    Promise.all(loincs.map(async (loinc) => [loinc, pickRange(await soft(() => referenceRanges(trace, loinc, persona.age, sexForRanges), []), persona, loinc)] as const)),
     Promise.all([...conceptKeys].map(async ([key, concept]) => [key, await resolve(trace, concept)] as const)),
     Promise.all(systemsPresent.map(async (system) => [system, await anatomyFor(trace, system)] as const)),
   ]);
@@ -127,17 +141,15 @@ export async function loadTwin(trace: Trace, twinId: string, options: { fresh?: 
 
   const keys = new Set(events.flatMap((e) => e.measurements.map((m) => m.key)));
   const simulations: SimulationType[] = [];
-  if (keys.has("hba1c")) simulations.push("hba1c_trajectory");
-  if (keys.has("ldl")) simulations.push("ldl_trajectory");
+  if (input.canSimulate && keys.has("hba1c")) simulations.push("hba1c_trajectory");
+  if (input.canSimulate && keys.has("ldl")) simulations.push("ldl_trajectory");
 
-  const view: TwinView = {
-    persona, twinId, grant: { systems: claims.systems, eventTypes: claims.eventTypes, expiresAt: claims.expiresAt },
+  return {
+    persona, twinId, grant: { systems: claims?.systems ?? null, eventTypes: claims?.eventTypes ?? null, expiresAt: claims?.expiresAt ?? "" },
     events, systems, medications, interactions,
     recordedConditions: events.filter((e) => e.eventType === "diagnosis").map((e) => e.title),
     baselineSignals, simulations, fetchedAt: new Date().toISOString(), trace: [],
   };
-  twinCache.set(twinId, { expires: Date.now() + TWIN_CACHE_MS, view });
-  return view;
 }
 
 function medicationRecords(raw: DtpEvent[], concepts: Map<string, Concept>): MedicationRecord[] {
@@ -182,11 +194,13 @@ async function normalizeSymptoms(trace: Trace, input: SymptomInput[]): Promise<N
   }));
 }
 
-async function phenotypeEvidence(trace: Trace, view: TwinView, symptoms: NormalizedSymptom[]) {
-  const recorded = recentRecordedSymptoms(view.events, new Date()).filter((r) => r.matches.length);
-  const reportedIds = symptoms.map((s) => s.hpo.holonId).filter((id): id is number => typeof id === "number");
-  if (!recorded.length || !reportedIds.length) return null;
-  const target = recorded[0];
+/** Compare today's symptoms with the most recent recorded symptoms in the same body system. */
+async function phenotypeEvidence(trace: Trace, view: TwinView, symptoms: NormalizedSymptom[], system: string) {
+  const target = recentRecordedSymptoms(view.events, new Date())
+    .filter((r) => r.matches.length && r.event.system === system)
+    .sort((a, b) => b.event.occurredAt.localeCompare(a.event.occurredAt))[0];
+  const reportedIds = symptoms.filter((s) => s.systems.includes(system as never)).map((s) => s.hpo.holonId).filter((id): id is number => typeof id === "number");
+  if (!target || !reportedIds.length) return null;
   const recordedIds = (await Promise.all(target.matches.map((m) => resolve(trace, { vocabulary: "HPO", code: m.hpo, resolved: false }))))
     .map((c) => c.holonId).filter((id): id is number => typeof id === "number");
   if (!recordedIds.length) return null;
@@ -196,14 +210,18 @@ async function phenotypeEvidence(trace: Trace, view: TwinView, symptoms: Normali
 }
 
 export async function analyzeTwin(trace: Trace, twinId: string, input: SymptomInput[]): Promise<AnalysisResult> {
-  const view = await loadTwin(trace, twinId);
+  return analyzeView(trace, await loadTwin(trace, twinId), input);
+}
+
+export async function analyzeView(trace: Trace, view: TwinView, input: SymptomInput[]): Promise<AnalysisResult> {
+  const twinId = view.twinId;
   const symptoms = await normalizeSymptoms(trace, input);
   const signals = runSignalEngine({ events: view.events, symptoms, now: new Date() });
   trace.record({ service: "ENGINE", operation: "signal engine", status: "ok", ms: 0, detail: signals.map((s) => `${s.ruleId}:${s.type}`).join(", ") || "no signal" });
 
-  const phenotype = await phenotypeEvidence(trace, view, symptoms);
   const primary = signals[0] ?? null;
-  if (primary && phenotype && phenotype.system === primary.system && phenotype.score >= 0.4 && primary.type !== "URGENT") {
+  const phenotype = primary && primary.type !== "URGENT" ? await phenotypeEvidence(trace, view, symptoms, primary.system) : null;
+  if (primary && phenotype && phenotype.score >= 0.4) {
     const evidence: EvidenceItem = {
       id: "pm:recorded", kind: "PHENOTYPE_MATCH", source: "ONTOLOGY_DERIVED", system: primary.system,
       label: `Today's symptoms resemble symptoms recorded before (similarity ${phenotype.score.toFixed(2)})`,
@@ -232,8 +250,10 @@ export async function analyzeTwin(trace: Trace, twinId: string, input: SymptomIn
 // ---- Simulation and write-back ------------------------------------------------------------------
 
 export async function simulateTwin(trace: Trace, twinId: string, type: SimulationType, durationMonths: number): Promise<SimulationComparison> {
-  const view = await loadTwin(trace, twinId);
-  const grant = await grantFor(trace, twinId);
+  return simulateWithAccess(trace, await loadTwin(trace, twinId), await grantFor(trace, twinId), type, durationMonths);
+}
+
+export async function simulateWithAccess(trace: Trace, view: TwinView, grant: TwinAccess, type: SimulationType, durationMonths: number): Promise<SimulationComparison> {
   // Only non-medication scenarios are offered: MediTwin must not suggest medication changes (FR-016).
   // The LDL model only supports statin changes besides no_change, so it runs as a current-course projection.
   const interventions: SimulationIntervention[] = type === "hba1c_trajectory" ? ["no_change", "lifestyle"] : ["no_change"];
@@ -250,7 +270,12 @@ export async function simulateTwin(trace: Trace, twinId: string, type: Simulatio
 }
 
 export async function flagSignal(trace: Trace, twinId: string, input: SymptomInput[]) {
-  const view = await loadTwin(trace, twinId, { fresh: true });
+  const result = await flagWithAccess(trace, await loadTwin(trace, twinId, { fresh: true }), await grantFor(trace, twinId), input);
+  twinCache.delete(twinId);
+  return result;
+}
+
+export async function flagWithAccess(trace: Trace, view: TwinView, grant: TwinAccess, input: SymptomInput[]) {
   const symptoms = await normalizeSymptoms(trace, input);
   const primary = runSignalEngine({ events: view.events, symptoms, now: new Date() })[0];
   if (!primary) return { status: "no_signal" as const };
@@ -259,13 +284,11 @@ export async function flagSignal(trace: Trace, twinId: string, input: SymptomInp
   const recent = view.events.find((e) => e.meditwinFlag && e.system === primary.system && Date.now() - new Date(e.occurredAt).getTime() < 86_400_000);
   if (recent) return { status: "exists" as const, eventId: recent.id, occurredAt: recent.occurredAt };
 
-  const grant = await grantFor(trace, twinId);
   const created = await flagEvent(trace, grant, primary.system, {
     title: `MediTwin signal: ${primary.systemLabel} ${primary.type.toLowerCase()}`,
     description: `${primary.rule} Evidence: ${primary.evidence.map((e) => e.label).join("; ")}. Generated by MediTwin's deterministic signal engine. Not a diagnosis.`,
     data: { meditwin: { signalType: primary.type, severity: primary.severity, ruleId: primary.ruleId, evidenceIds: primary.evidence.map((e) => e.id), symptoms: symptoms.map((s) => s.id) } },
   });
-  twinCache.delete(twinId);
   return { status: "created" as const, eventId: created.id, occurredAt: created.occurredAt };
 }
 

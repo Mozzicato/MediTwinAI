@@ -2,32 +2,49 @@
 
 **Understand your health. See your body differently.**
 
-MediTwin is a personal health-context layer built on the OntoMorph platform. It reads a patient's **OntoMorph digital twin**, resolves every record through **HOLON** clinical knowledge, runs a **deterministic signal engine**, shows the affected anatomy in **3D**, and explains the result in plain language with **every sentence citing its evidence** (AI via Groq or Claude). It ends with reviewed care guidance.
+MediTwin is a personal health twin built on the OntoMorph platform. People create an account, connect their own **OntoMorph digital twin** (records from providers, Apple/Google Health, uploaded lab reports) and/or add results themselves, and check in on how they feel. MediTwin then:
 
-It follows one principle from the PRD:
+- resolves every record through **HOLON** clinical knowledge
+- runs a **deterministic signal engine**
+- shows the affected anatomy in **3D**
+- explains the result in plain language, with **every sentence citing its evidence**
+- ends with reviewed care guidance and a visit summary
 
 > Data → clinical context → health signal → explanation → appropriate next step, not symptoms → AI diagnosis.
 
-MediTwin does not diagnose, prescribe, or replace a healthcare professional. The demo uses synthetic OntoMorph sandbox twins only.
+MediTwin gives health information, not medical advice or diagnosis. Sample twins (synthetic OntoMorph sandbox data) let anyone try it without signing up.
 
 ## What it does
 
-| | Feature | Platform |
-|---|---|---|
-| 🧬 | Loads live synthetic twins (5 personas) with grant-token auth | DTP `GET /grants`, `GET /provider/twins/:id/events` |
-| 📚 | Resolves LOINC, RxNorm, SNOMED CT, HPO and FMA codes to concepts | HOLON `/concepts` |
-| 📏 | Compares every measurement with an age/sex-aware reference range, with approved unit conversion (e.g. 6.1 mmol/L → 109.9 mg/dL) | HOLON `/reference-ranges/loinc` |
-| ⚖️ | Deterministic signal engine: named rules (`SIG-ATT-01`, `RF-CHEST-01`, …), symptom→measurement relevance, trends, red flags | MediTwin |
-| 🔁 | Detects recurring symptoms by comparing today's report with symptoms already in the twin | HOLON `/phenotype/match` |
-| 🫀 | 3D anatomy: only FMA structures verified live in HOLON light up | HOLON FMA + react-three-fiber |
-| ✍️ | Plain-language explanation. An LLM (Groq `openai/gpt-oss-120b` by default, or Claude) writes it from structured evidence with strict JSON output; uncited paragraphs are dropped, a safety layer blocks diagnoses, medication instructions and false reassurance, and a reviewed template is used on any failure | Groq / Claude (optional) |
-| 🚑 | Red-flag symptoms bypass the AI and go straight to reviewed emergency guidance | MediTwin content set |
-| 📈 | What-if projection on the twin's own results (non-medication scenarios only) | DTP `twin.simulate` |
-| 💊 | Medication check: RxNorm label/code strength mismatch plus HOLON interaction screen | HOLON `/interactions/check-list` |
-| ✍️→🧬 | Write the signal back onto the twin as a clinical note, recomputed server-side and de-duplicated per day | DTP `twin.flag` |
-| 🗒️ | Printable visit summary for the next appointment | MediTwin |
-| 🔍 | Integration trace: every DTP/HOLON/AI call and engine step, with latency | MediTwin |
-| 🎬 | Guided 7-step demo that follows PRD §43 and narrates from live data | MediTwin |
+### For a signed-in person
+| Feature | How |
+|---|---|
+| Account with informed consent, profile (first name, birth year, sex) | Turso/libSQL, scrypt passwords, signed HTTP-only 7-day sessions, sign-in rate limiting |
+| **Connect your own OntoMorph twin** by pasting the grant token you issue in OntoMorph | Token verified live against OntoMorph (production or sandbox) and stored encrypted; expiry and revocation detected |
+| **Add your own results**: HbA1c, glucose, blood pressure, heart rate, BMI, lipids, creatinine, ALT, TSH, WBC | LOINC-coded catalog, unit conversion (mmol/L ↔ mg/dL, µmol/L), plausibility checks; optionally written to your twin |
+| **Symptom check-ins that remember** | Every check-in is saved; recent ones count as history, so recurring symptoms are recognised (plus HOLON phenotype similarity) |
+| Health view, timeline, 3D anatomy, cited explanation, care guidance, what-if, visit summary | Same engine as the sample twins, run on *your* data |
+| **Save a signal to your twin** | DTP `twin.flag` with your grant |
+| **Export all your data** (decrypted JSON) and **delete your account** | Full deletion of profile, results, check-ins, twin connection and activity log |
+
+### Platform integration
+| Feature | Platform |
+|---|---|
+| Twin events via patient grant tokens (production + sandbox) | DTP `GET/POST /provider/twins/:id/events` |
+| Concepts for LOINC, RxNorm, SNOMED CT, HPO and FMA | HOLON `/concepts` |
+| Age/sex-aware reference ranges | HOLON `/reference-ranges/loinc` |
+| Recurring-symptom similarity | HOLON `/phenotype/match` |
+| Medication interaction screen | HOLON `/interactions/check-list` |
+| What-if trajectories (non-medication scenarios only) | DTP simulations |
+| Plain-language explanations and free-text symptom mapping (strict JSON, citation + safety checks, template fallback) | Groq `openai/gpt-oss-120b` or Claude |
+
+## Privacy and security
+
+- **Encryption at rest.** Health content (results, notes, check-ins, profile, grant tokens) is encrypted with AES-256-GCM before it's written. The database stores only ciphertext plus ids and timestamps.
+- **Minimal data.** No ID numbers or medical-record numbers. The AI provider receives only the evidence, age and sex, never name or email.
+- **Consent recorded** with version and timestamp. An audit log of account actions (without health values) is included in the export.
+- **Access control.** Every personal route checks a signed session and that the account still exists. Cross-origin writes are refused. Secrets never reach the browser.
+- **User control.** Data export and permanent deletion are available in *Account & privacy*. OntoMorph access can be revoked at the source.
 
 ## Run locally
 
@@ -35,82 +52,70 @@ Requires Node 20+ (tested on 24).
 
 ```powershell
 Set-Location frontend
-Copy-Item ..\.env.example .env.local   # then fill in ONTOMORPH_API_KEY and HOLON_API_KEY
+Copy-Item ..\.env.example .env.local   # fill in the keys (see below)
 npm install
 npm run dev
 ```
 
-Open <http://localhost:3000> and click **Explore Demo Twin → Start guided demo**.
+Open <http://localhost:3000>. Choose **Create your health twin**, or **Try a sample twin** for no sign-up.
 
-`GROQ_API_KEY` (or `ANTHROPIC_API_KEY`, which takes priority) is optional. Without one, explanations come from the reviewed templates and free-text symptoms are keyword-matched. The UI labels which path produced each explanation, and falls back to the template on any AI failure, including rate limits.
+## Environment variables (server-side only)
+
+| Variable | Needed for |
+|---|---|
+| `ONTOMORPH_API_KEY` (alias `DTP_LIVE_PERSONAL`) | OntoMorph DTP: sample twins and connected personal twins |
+| `HOLON_API_KEY` | Clinical concepts, reference ranges, anatomy |
+| `DATABASE_URL`, `TURSO_AUTH_TOKEN` | Accounts and personal data (Turso) |
+| `LOCAL_AUTH_SESSION_SECRET` | Signing sessions (long random value) |
+| `DATA_ENCRYPTION_KEY` | Encrypting health data. **Generate once and never change it**, or stored data becomes unreadable |
+| `GROQ_API_KEY` or `ANTHROPIC_API_KEY` | AI explanations (optional; reviewed templates otherwise) |
+| `MEDITWIN_APP_MODE` | `demo` (default) or `clinical` (fail-closed gate) |
+
+Never prefix any of these with `NEXT_PUBLIC_`.
 
 ## Checks
 
 ```powershell
 Set-Location frontend
-npm run typecheck      # Next route types + tsc
+npm run typecheck
 npm run lint
-npm test               # 55 unit tests: engine, normalization, safety ("AI tests" from PRD §48)
-npm run test:live      # live integration tests against OntoMorph DTP sandbox + HOLON (needs keys)
+npm test            # 57 tests: engine, safety, normalization, and the full account journey on a throwaway local DB
+npm run test:live   # live: OntoMorph + HOLON + AI, including connecting a twin with a real grant token
 npm run build
 ```
 
 ## Deploy (Vercel)
 
 1. Import the repository and set **Root Directory** to `frontend`.
-2. Add server-side environment variables: `ONTOMORPH_API_KEY`, `HOLON_API_KEY`, optionally `GROQ_API_KEY` (or `ANTHROPIC_API_KEY`), and `MEDITWIN_APP_MODE=demo`.
-3. Optionally add `DATABASE_URL`, `TURSO_AUTH_TOKEN` and `LOCAL_AUTH_SESSION_SECRET` to enable demo accounts. The demo itself has no registration wall.
-
-Never put any key in a `NEXT_PUBLIC_*` variable. The browser only talks to MediTwin's own `/api/*` routes.
+2. Add the environment variables above.
+3. Deploy. The database schema is created automatically on first use.
 
 ## Architecture
 
 ```
 Browser (Next.js client)
-   │  /api/twins, /api/twins/:id, /analyze, /simulate, /flag, /api/symptoms/interpret
+   │  /api/twins/*            sample twins (no account)
+   │  /api/me/*               the signed-in person's own data
    ▼
-Next.js route handlers ── src/server/http.ts      clinical-mode gate, validation, PRD error wording
-   │
-   ├─ src/server/twin-service.ts                  orchestration + per-request Trace
-   │     ├─ ontomorph/dtp.ts    grants · events · simulate · flag   (X-DTP-API-Key + grant bearer)
-   │     ├─ ontomorph/holon.ts  concepts · ranges · phenotype · interactions (cached 12 h)
-   │     └─ ai.ts               Groq or Claude: schema-constrained JSON → citation check → safety check
-   │
-   └─ src/domain/  (pure, framework-free, unit-tested)
-         content.ts       reviewed content set: symptoms, LOINC map, anatomy map, red flags, guidance
-         normalize.ts     DTP event → measurements, concepts, timeline; range comparison
-         signals.ts       deterministic signal engine + guidance selection
-         safety.ts        FR-016 safety rules
-         explanations.ts  reviewed-template explanations
+Route handlers ── server/http.ts, server/session.ts   gate, validation, auth, error wording
+   ├─ server/twin-service.ts      buildView / analyzeView / simulate / flag (shared by both modes)
+   ├─ server/personal/service.ts  twin connection, entries, check-ins, export, deletion
+   ├─ server/personal/store.ts    encrypted persistence (server/db.ts + server/crypto.ts)
+   ├─ server/ontomorph/dtp.ts     grants, events, writes, simulations (production + sandbox hosts)
+   ├─ server/ontomorph/holon.ts   concepts, ranges, phenotype, interactions (cached)
+   └─ server/ai.ts                Groq/Claude → citation check → safety check
+domain/   (pure, unit-tested)     content set, entry catalog, normalization, signal engine, safety, templates
 ```
 
-The published `@ontomorph/dtp-sdk` package currently ships without its compiled source, so `dtp.ts` and `holon.ts` are small typed clients that mirror the SDKs' documented routes, headers and `{ data }` envelopes.
+## Before scaling to the public
 
-### Honesty boundaries
+The product works end to end. For a wide public launch you should also:
 
-- **No invented data.** If the twin can't be reached, MediTwin says so and shows nothing in its place. If HOLON has no range, the UI says "No HOLON reference" rather than using a hard-coded one.
-- **Anatomy.** The OntoMorph sandbox returns no 3D asset (`animation: null`), so the body is a schematic rendered by MediTwin and labelled as such. Which structures light up comes only from FMA concepts that HOLON verified.
-- **Personas.** Sandbox twins carry no demographics. Names, ages and sex are demo labels added by MediTwin, used only for age/sex-aware range lookups.
+- register MediTwin as an app in OntoMorph so people can grant it access from their OntoMorph account
+- add email verification and password reset (needs an email provider)
+- get a legal review of the privacy notice for your jurisdictions (e.g. NDPA, GDPR, HIPAA where relevant)
+- have a licensed clinician review the content set in `domain/content.ts`
 
-## PRD Phase 1 acceptance test
+See [docs/CLINICAL_LAUNCH.md](docs/CLINICAL_LAUNCH.md).
 
-| PRD check | Where |
-|---|---|
-| Demo patient loads, no registration wall | Landing → Explore Demo Twin |
-| OntoMorph authentication, twin, systems, events | `dtp.ts`, Overview, Timeline |
-| HOLON concept resolution + reference ranges | Measurement drawer, `holon.ts` |
-| Timeline renders | Health timeline |
-| Symptoms entered and normalized (SNOMED CT + HPO, original wording kept) | Symptom check |
-| Deterministic structured signal | `signals.ts`, `tests/domain.test.ts` |
-| Anatomy mapping (FMA, verified) + 3D display | Overview, Health context |
-| Explanation generated from retrieved evidence, no diagnosis | `ai.ts`, `explanations.ts`, `safety.ts` |
-| Care guidance from reviewed content | `content.ts` → Health context |
-| API errors handled | `http.ts`, PRD-worded messages, "Try again" |
-| No secrets reach the frontend | `server-only` modules, no `NEXT_PUBLIC_` keys |
-| Completes without developer intervention | Guided demo |
-
-## Clinical mode
-
-`MEDITWIN_APP_MODE=clinical` fails closed: no sandbox data is served and an activation screen is shown until production identity, storage, integrations and a clinically approved content set are configured. It is a safety gate, not a clearance. Read [docs/CLINICAL_LAUNCH.md](docs/CLINICAL_LAUNCH.md).
-
-More: [docs/SUBMISSION.md](docs/SUBMISSION.md) (hackathon description) · [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) (3-minute video script) · [PRD.MD](PRD.MD)
+More: [docs/SUBMISSION.md](docs/SUBMISSION.md) · [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) · [PRD.MD](PRD.MD)

@@ -6,8 +6,8 @@ import type { DtpEvent } from "@/domain/normalize";
 // Thin client for the OntoMorph Digital Twin Platform. Routes, headers and the `{ data }` envelope
 // mirror @ontomorph/dtp-sdk (X-DTP-API-Key + a patient grant token as the bearer).
 //
-// MediTwin only uses the sandbox host, whose standing cohort of synthetic twins is physically
-// isolated from real patient data. Clinical mode never reaches this module.
+// Sample twins come from the sandbox host (synthetic, isolated from real patients). A person's own
+// twin is reached on the production host with the grant token they issued to MediTwin.
 
 export class DtpError extends Error {
   constructor(message: string, readonly code: string, readonly status: number) {
@@ -29,7 +29,14 @@ export interface GrantClaims {
   expiresAt: string;
 }
 
-async function call<T>(path: string, init: { method?: "GET" | "POST"; bearer?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+/** A grant-authorised handle on one twin. `host` defaults to the sandbox. */
+export interface TwinAccess {
+  grantToken: string;
+  twinId: string;
+  host?: string;
+}
+
+async function call<T>(path: string, init: { method?: "GET" | "POST"; bearer?: string; body?: unknown; timeoutMs?: number; host?: string } = {}): Promise<T> {
   if (!config.ontomorphApiKey) throw new DtpError("ONTOMORPH_API_KEY is not configured", "NOT_CONFIGURED", 0);
   const headers: Record<string, string> = { Accept: "application/json", "X-DTP-API-Key": config.ontomorphApiKey };
   if (init.bearer) headers.Authorization = `Bearer ${init.bearer}`;
@@ -37,7 +44,7 @@ async function call<T>(path: string, init: { method?: "GET" | "POST"; bearer?: s
 
   let response: Response;
   try {
-    response = await fetch(`${config.ontomorphSandboxUrl}${path}`, {
+    response = await fetch(`${init.host ?? config.ontomorphSandboxUrl}${path}`, {
       method: init.method ?? "GET",
       headers,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -88,9 +95,15 @@ export async function grantFor(trace: Trace, twinId: string) {
   return grant;
 }
 
-export async function listEvents(trace: Trace, grant: SandboxGrant): Promise<DtpEvent[]> {
+/** Sandbox grant tokens are issued to a sandbox subject; everything else is a real, production grant. */
+export function hostForToken(token: string) {
+  const sub = (() => { try { return String(JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")).sub ?? ""); } catch { return ""; } })();
+  return sub.includes("sandbox") ? { host: config.ontomorphSandboxUrl, environment: "sandbox" as const } : { host: config.ontomorphApiUrl, environment: "production" as const };
+}
+
+export async function listEvents(trace: Trace, grant: TwinAccess): Promise<DtpEvent[]> {
   return trace.step("DTP", "twin events", () =>
-    call<DtpEvent[]>(`/provider/twins/${encodeURIComponent(grant.twinId)}/events?limit=200`, { bearer: grant.grantToken }),
+    call<DtpEvent[]>(`/provider/twins/${encodeURIComponent(grant.twinId)}/events?limit=200`, { bearer: grant.grantToken, host: grant.host }),
   (events) => ({ status: "ok", detail: `${events.length} events` }));
 }
 
@@ -101,19 +114,26 @@ export interface SimulationWire {
   disclaimer?: string | null;
 }
 
-export async function simulate(trace: Trace, grant: SandboxGrant, simulationType: string, params: Record<string, unknown>) {
+export async function simulate(trace: Trace, grant: TwinAccess, simulationType: string, params: Record<string, unknown>) {
   return trace.step("DTP", `simulate ${simulationType} (${String(params.intervention)})`, () =>
     call<SimulationWire>(`/provider/twins/${encodeURIComponent(grant.twinId)}/simulations`, {
-      method: "POST", bearer: grant.grantToken, body: { simulationType, params }, timeoutMs: 30_000,
+      method: "POST", bearer: grant.grantToken, body: { simulationType, params }, timeoutMs: 30_000, host: grant.host,
     }));
 }
 
 /** Write a finding back onto the twin as a clinical note (twin.flag in the SDK). */
-export async function flagEvent(trace: Trace, grant: SandboxGrant, system: string, flag: { title: string; description: string; data: Record<string, unknown> }) {
+export async function flagEvent(trace: Trace, grant: TwinAccess, system: string, flag: { title: string; description: string; data: Record<string, unknown> }) {
   return trace.step("DTP", `flag ${system}`, () =>
     call<DtpEvent>(`/provider/twins/${encodeURIComponent(grant.twinId)}/events`, {
       method: "POST",
       bearer: grant.grantToken,
+      host: grant.host,
       body: { eventType: "clinical_note", occurredAt: new Date().toISOString(), title: flag.title, description: flag.description, data: { ...flag.data, system } },
     }));
+}
+
+/** Write a health event (e.g. a result the person entered) onto their twin. */
+export async function writeEvent(trace: Trace, grant: TwinAccess, event: { eventType: string; occurredAt: string; title: string; data: Record<string, unknown> }) {
+  return trace.step("DTP", `write ${event.eventType}`, () =>
+    call<DtpEvent>(`/provider/twins/${encodeURIComponent(grant.twinId)}/events`, { method: "POST", bearer: grant.grantToken, host: grant.host, body: event }));
 }

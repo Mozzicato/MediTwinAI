@@ -5,6 +5,8 @@ import { MeasurementStatus } from "@/components/ui/primitives";
 import type { Measurement, TwinView } from "@/domain/types";
 import { longDate, monthLabel, shortDate } from "@/lib/format";
 
+const SOURCE_LABEL: Record<string, string> = { "meditwin.entry": "Added by you", "meditwin.checkin": "Your check-in" };
+
 export function Timeline({ twin, onOpenMeasurement, onRefresh, refreshing }: {
   twin: TwinView; onOpenMeasurement: (m: Measurement) => void; onRefresh: () => void; refreshing: boolean;
 }) {
@@ -16,10 +18,10 @@ export function Timeline({ twin, onOpenMeasurement, onRefresh, refreshing }: {
 
   return <section className="card timeline">
     <div className="card-head">
-      <div><span className="eyebrow">Health timeline</span><h3>{twin.events.length} events from your digital twin</h3></div>
+      <div><span className="eyebrow">Health timeline</span><h3>{twin.events.length} events</h3></div>
       <div className="timeline-tools">
         <label className="toggle"><input type="checkbox" checked={showCodes} onChange={(e) => setShowCodes(e.target.checked)} /> Show clinical codes</label>
-        <button className="button button-small" onClick={onRefresh} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh from twin"}</button>
+        <button className="button button-small" onClick={onRefresh} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh"}</button>
       </div>
     </div>
     <div className="filter-chips" role="group" aria-label="Filter by body system">
@@ -45,7 +47,7 @@ export function Timeline({ twin, onOpenMeasurement, onRefresh, refreshing }: {
             </li>)}
           </ul>}
         </div>
-        <span className="timeline-source" title={`Source plugin: ${e.sourcePlugin}`}>OntoMorph DTP</span>
+        <span className={`timeline-source source-${e.sourcePlugin.startsWith("meditwin.") ? "user-provided" : "twin-record"}`} title={`Source: ${e.sourcePlugin}`}>{SOURCE_LABEL[e.sourcePlugin] ?? "OntoMorph twin"}</span>
       </article>)}
     </div>)}
   </section>;

@@ -90,7 +90,8 @@ export async function resolveConcept(trace: Trace, vocabulary: Vocabulary, code:
 }
 
 export async function referenceRanges(trace: Trace, loinc: string, age: number, sex: string) {
-  const params = new URLSearchParams({ age: String(age), sex });
+  const params = new URLSearchParams({ age: String(age) });
+  if (sex) params.set("sex", sex);
   const result = await trace.step("HOLON", `reference range LOINC ${loinc}`,
     () => request<{ ranges: HolonRange[] }>(`/reference-ranges/loinc/${encodeURIComponent(loinc)}?${params}`), statusOf);
   return result.value?.ranges ?? [];

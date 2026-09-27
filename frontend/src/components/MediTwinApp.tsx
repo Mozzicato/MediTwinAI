@@ -1,14 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Onboarding } from "@/components/account/Onboarding";
 import { Landing } from "@/components/landing/Landing";
 import { TwinPicker } from "@/components/twin/TwinPicker";
-import { Workspace } from "@/components/twin/Workspace";
-import { Logo } from "@/components/ui/primitives";
-import type { Persona } from "@/domain/types";
-import { api, type AuthUser, type Readiness } from "@/lib/api";
+import { Workspace, type WorkspaceSource } from "@/components/twin/Workspace";
+import { Logo, Spinner } from "@/components/ui/primitives";
+import type { Persona, Profile } from "@/domain/types";
+import { api, me, type AuthUser, type Readiness } from "@/lib/api";
 
-type Screen = { name: "landing" } | { name: "picker" } | { name: "auth"; mode: "signin" | "signup" } | { name: "workspace"; persona: Persona; guided: boolean };
+type Screen =
+  | { name: "loading" }
+  | { name: "landing" }
+  | { name: "auth"; mode: "signin" | "signup" }
+  | { name: "onboarding" }
+  | { name: "picker" }
+  | { name: "sample"; persona: Persona; guided: boolean }
+  | { name: "mine" };
 
 function AuthPanel({ mode, onMode, onDone, onBack }: { mode: "signin" | "signup"; onMode: (m: "signin" | "signup") => void; onDone: (u: AuthUser) => void; onBack: () => void }) {
   const [message, setMessage] = useState("");
@@ -23,16 +31,16 @@ function AuthPanel({ mode, onMode, onDone, onBack }: { mode: "signin" | "signup"
     <section className="panel">
       <button className="link-button panel-back" onClick={onBack}>← Back</button>
       <Logo />
-      <span className="eyebrow">Optional demo account</span>
-      <h1>{mode === "signup" ? "Create an account" : "Welcome back"}</h1>
-      <p className="muted">You don&apos;t need an account to explore the demo. Accounts here are for the demo only and never hold real health information.</p>
+      <span className="eyebrow">{mode === "signup" ? "Free account" : "Welcome back"}</span>
+      <h1>{mode === "signup" ? "Create your health twin" : "Sign in to MediTwin"}</h1>
+      <p className="muted">{mode === "signup" ? "Your results and check-ins are private to you and encrypted before they're stored." : "Pick up where you left off."}</p>
       <form action={submit} className="auth-form">
         <label>Email<input name="email" type="email" autoComplete="email" required placeholder="you@example.com" /></label>
         <label>Password<input name="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} required minLength={8} placeholder="At least 8 characters" /></label>
         {message && <p className="error-text" role="alert">{message}</p>}
         <button className="button button-primary" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</button>
       </form>
-      <p className="small">{mode === "signup" ? "Already have an account?" : "New here?"} <button className="link-button" onClick={() => onMode(mode === "signup" ? "signin" : "signup")}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p>
+      <p className="small">{mode === "signup" ? "Already have an account?" : "New to MediTwin?"} <button className="link-button" onClick={() => onMode(mode === "signup" ? "signin" : "signup")}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p>
     </section>
   </main>;
 }
@@ -43,16 +51,12 @@ function ClinicalGate({ readiness }: { readiness: Readiness | null }) {
       <Logo />
       {readiness === null ? <>
         <span className="eyebrow">Secure environment check</span>
-        <h1>Preparing your health workspace</h1>
-        <p className="muted">MediTwin is checking this environment before it shows any health information.</p>
+        <h1>Preparing MediTwin</h1>
+        <p className="muted"><Spinner label="Checking this environment before showing any health information…" /></p>
       </> : <>
         <span className="eyebrow">Clinical environment</span>
         <h1>Clinical access is not activated</h1>
-        <p className="muted">This environment is configured for real health data. MediTwin won&apos;t load synthetic records or accept clinical information until the required security, identity and integration services are verified.</p>
-        <ul className="checklist">
-          <li>Identity and consent enforcement</li><li>Encrypted clinical-data storage</li>
-          <li>Verified OntoMorph and HOLON production integrations</li><li>Clinically reviewed content set</li><li>Audit logging and monitoring</li>
-        </ul>
+        <p className="muted">This deployment is configured for clinical use. It stays closed until identity, storage, integrations and a clinically approved content set are verified.</p>
       </>}
     </section>
   </main>;
@@ -61,16 +65,31 @@ function ClinicalGate({ readiness }: { readiness: Readiness | null }) {
 export function MediTwinApp() {
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [screen, setScreen] = useState<Screen>({ name: "landing" });
+  const [accountsEnabled, setAccountsEnabled] = useState(false);
+  const [screen, setScreen] = useState<Screen>({ name: "loading" });
   const [twins, setTwins] = useState<Persona[] | null>(null);
   const [twinsError, setTwinsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.readiness().then((r) => {
-      setReadiness(r);
-      if (r.mode === "demo") api.me().then(setUser).catch(() => setUser(null));
-    }).catch(() => setReadiness({ mode: "clinical", ready: false, missing: [] }));
+  /** Signed-in people go to their own twin, via onboarding the first time. */
+  const routeSignedIn = useCallback(async () => {
+    try {
+      const status = await me.onboarding();
+      setScreen(status.profile ? { name: "mine" } : { name: "onboarding" });
+    } catch {
+      setScreen({ name: "landing" });
+    }
   }, []);
+
+  useEffect(() => {
+    api.readiness().then(async (r) => {
+      setReadiness(r);
+      if (r.mode !== "demo") return;
+      const session = await api.session().catch(() => ({ user: null, accountsEnabled: false }));
+      setAccountsEnabled(session.accountsEnabled);
+      setUser(session.user);
+      if (session.user) await routeSignedIn(); else setScreen({ name: "landing" });
+    }).catch(() => setReadiness({ mode: "clinical", ready: false, missing: [] }));
+  }, [routeSignedIn]);
 
   const loadTwins = useCallback(async () => {
     setTwinsError(null);
@@ -78,15 +97,29 @@ export function MediTwinApp() {
     catch (e) { setTwinsError(e instanceof Error ? e.message : "Please try again."); }
   }, []);
 
-  const signOut = async () => { await api.signOut(); setUser(null); };
+  const signOut = async () => { await api.signOut(); setUser(null); setScreen({ name: "landing" }); };
   const openPicker = () => { setScreen({ name: "picker" }); if (!twins) void loadTwins(); };
+  const saveProfile = async (profile: Profile) => { await me.saveProfile(profile); setScreen({ name: "mine" }); };
+
+  const personalSource = useMemo<WorkspaceSource | null>(() => (user ? { kind: "personal", user } : null), [user]);
+  const sampleSource = useMemo<WorkspaceSource | null>(
+    () => (screen.name === "sample" ? { kind: "sample", persona: screen.persona, guided: screen.guided } : null),
+    [screen],
+  );
 
   if (!readiness || readiness.mode === "clinical") return <ClinicalGate readiness={readiness} />;
+  if (screen.name === "loading") return <ClinicalGate readiness={null} />;
   if (screen.name === "auth") return <AuthPanel mode={screen.mode} onMode={(mode) => setScreen({ name: "auth", mode })} onBack={() => setScreen({ name: "landing" })}
-    onDone={(u) => { setUser(u); setScreen({ name: "landing" }); }} />;
-  if (screen.name === "picker") return <TwinPicker twins={twins} error={twinsError} onBack={() => setScreen({ name: "landing" })} onRetry={() => void loadTwins()}
-    onPick={(persona, guided) => setScreen({ name: "workspace", persona, guided })} />;
-  if (screen.name === "workspace") return <Workspace key={screen.persona.twinId} persona={screen.persona} guided={screen.guided} user={user}
-    onExit={() => setScreen({ name: "picker" })} onSignOut={() => void signOut()} />;
-  return <Landing onExplore={openPicker} onSignIn={() => setScreen({ name: "auth", mode: "signin" })} onSignOut={() => void signOut()} user={user} readiness={readiness} />;
+    onDone={(u) => { setUser(u); void routeSignedIn(); }} />;
+  if (screen.name === "onboarding" && user) return <Onboarding email={user.email} onSave={saveProfile} onSignOut={() => void signOut()} />;
+  if (screen.name === "picker") return <TwinPicker twins={twins} error={twinsError} onBack={() => setScreen(user ? { name: "mine" } : { name: "landing" })} onRetry={() => void loadTwins()}
+    onPick={(persona, guided) => setScreen({ name: "sample", persona, guided })} />;
+  if (screen.name === "sample" && sampleSource) return <Workspace key={`sample-${screen.persona.twinId}`} source={sampleSource} user={user}
+    onExit={() => setScreen({ name: "picker" })} onSignOut={() => void signOut()} onAccountDeleted={() => void signOut()} />;
+  if (screen.name === "mine" && personalSource) return <Workspace key="mine" source={personalSource} user={user}
+    onExit={() => setScreen({ name: "landing" })} onSignOut={() => void signOut()}
+    onAccountDeleted={() => { setUser(null); setScreen({ name: "landing" }); }} />;
+  return <Landing user={user} accountsEnabled={accountsEnabled} readiness={readiness}
+    onSignUp={() => setScreen({ name: "auth", mode: "signup" })} onSignIn={() => setScreen({ name: "auth", mode: "signin" })}
+    onOpenMine={() => void routeSignedIn()} onSample={openPicker} onSignOut={() => void signOut()} />;
 }

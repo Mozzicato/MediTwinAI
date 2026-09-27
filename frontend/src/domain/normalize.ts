@@ -2,7 +2,7 @@
 // No network access here: HOLON lookups are injected by the server service so this stays testable.
 
 import {
-  MEASUREMENT_FIELDS, TEST_NAME_LOINC, UNIT_CONVERSIONS, canonicalUnit, matchSymptomText, type MeasurementContent,
+  LOINC_KEY, MEASUREMENT_FIELDS, TEST_NAME_LOINC, UNIT_CONVERSIONS, canonicalUnit, matchSymptomText, type MeasurementContent,
 } from "./content";
 import type { Concept, Measurement, RangeStatus, ReferenceRange, TimelineEvent } from "./types";
 
@@ -58,7 +58,7 @@ export function extractMeasurements(event: DtpEvent): Omit<Measurement, "referen
   const isPanel = testName === "lipid panel" || testName === "cbc";
   if (!isPanel && value !== null && event.eventType === "lab_result") {
     const byName = testName ? TEST_NAME_LOINC[testName] : undefined;
-    const content = byName ?? (loinc ? { key: `loinc_${loinc}`, label: str(data.loinc_display) ?? event.title, loinc } : undefined);
+    const content = byName ?? (loinc ? LOINC_KEY[loinc] ?? { key: `loinc_${loinc}`, label: str(data.loinc_display) ?? event.title, loinc } : undefined);
     if (content) push({ ...content, loinc: loinc ?? content.loinc }, value, eventUnit, str(data.referenceRange));
   }
 
@@ -87,7 +87,8 @@ export function evaluateAgainstRange(
   if (from && from !== to) {
     const conversion = loinc ? UNIT_CONVERSIONS[loinc]?.find((c) => c.from === from && c.to === to) : undefined;
     if (!conversion) return { status: "UNIT_MISMATCH" };
-    comparable = Math.round(value * conversion.factor * 10) / 10;
+    const converted = value * conversion.factor;
+    comparable = Math.abs(converted) >= 10 ? Math.round(converted * 10) / 10 : Math.round(converted * 100) / 100;
     compared = { value: comparable, unit: range.unit };
   }
   if (range.high !== null && comparable > range.high) return { status: "ABOVE", compared };

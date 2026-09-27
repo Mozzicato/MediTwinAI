@@ -131,7 +131,7 @@ export interface Persona {
   twinId: string;
   name: string;
   age: number;
-  sex: "male" | "female";
+  sex: "male" | "female" | "unspecified";
   headline: string;
   featured?: boolean;
 }
@@ -157,6 +157,8 @@ export interface TwinView {
   simulations: SimulationType[];
   fetchedAt: string;
   trace: TraceEntry[];
+  /** Present when the view belongs to a signed-in person rather than a sample twin. */
+  personal?: PersonalState;
 }
 
 // ---- Symptoms, signals, explanations -------------------------------------------------------
@@ -265,4 +267,55 @@ export interface SimulationComparison {
   baseline: { label: string; value: number; unit: string } | null;
   runs: SimulationRun[];
   trace: TraceEntry[];
+}
+
+// ---- Personal accounts ------------------------------------------------------------------------
+
+export type ProfileSex = "male" | "female" | "unspecified";
+
+export interface Profile {
+  firstName: string;
+  birthYear: number;
+  sex: ProfileSex;
+}
+
+export interface ManualEntry {
+  id: string;
+  typeId: string;
+  occurredAt: string;
+  values: Record<string, number>;
+  unit: string;
+  note?: string;
+  /** Set when the entry was also written to the person's OntoMorph twin. */
+  twinEventId?: string | null;
+  createdAt: string;
+}
+
+export interface CheckIn {
+  id: string;
+  createdAt: string;
+  symptoms: SymptomInput[];
+  signal: { type: SignalType; systemLabel: string; ruleId: string; title: string } | null;
+  headline: string;
+}
+
+export interface TwinConnection {
+  connected: boolean;
+  twinId?: string;
+  environment?: "production" | "sandbox";
+  systems?: string[] | null;
+  eventTypes?: string[] | null;
+  expiresAt?: string;
+  connectedAt?: string;
+  status?: "ok" | "expired" | "error";
+  message?: string;
+}
+
+export interface PersonalState {
+  email: string;
+  profile: Profile | null;
+  consent: { version: string; at: string } | null;
+  connection: TwinConnection;
+  entries: ManualEntry[];
+  checkins: CheckIn[];
 }

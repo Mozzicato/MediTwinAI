@@ -1,4 +1,4 @@
-import type { AnalysisResult, Persona, SimulationComparison, SimulationType, SymptomInput, TraceEntry, TwinView } from "@/domain/types";
+import type { AnalysisResult, ManualEntry, Persona, Profile, SimulationComparison, SimulationType, SymptomInput, TraceEntry, TwinView } from "@/domain/types";
 
 // Browser-side calls to MediTwin's own API. The browser never talks to OntoMorph, HOLON or the AI provider
 // directly, and never sees their credentials (FR-002, PRD 45).
@@ -11,11 +11,11 @@ export class ApiError extends Error {
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
-async function request<T>(path: string, body?: unknown): Promise<T> {
+async function request<T>(path: string, body?: unknown, method?: "POST" | "PUT" | "DELETE"): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${apiBase}${path}`, body === undefined ? { cache: "no-store" } : {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    response = await fetch(`${apiBase}${path}`, body === undefined && !method ? { cache: "no-store" } : {
+      method: method ?? "POST", headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
     throw new ApiError("We couldn't reach MediTwin. Check your connection and try again.", 0);
@@ -38,10 +38,33 @@ export const api = {
     request<{ status: "created" | "exists" | "no_signal"; eventId?: string; occurredAt?: string; trace: TraceEntry[] }>(`/api/twins/${id}/flag`, { symptoms }),
   interpret: (text: string) =>
     request<{ matches: { id: string; quote: string }[]; method: "MODEL_INFERRED" | "KEYWORD"; note?: string }>("/api/symptoms/interpret", { text }),
-  me: async () => {
+  session: async () => {
     const response = await fetch(`${apiBase}/api/auth/me`, { cache: "no-store" });
-    return response.ok ? ((await response.json()) as { user: AuthUser | null }).user : null;
+    if (!response.ok) return { user: null, accountsEnabled: false };
+    return (await response.json()) as { user: AuthUser | null; accountsEnabled: boolean };
   },
   auth: (action: "signin" | "signup", email: string, password: string) => request<{ user: AuthUser }>(`/api/auth/${action}`, { email, password }),
   signOut: () => fetch(`${apiBase}/api/auth/signout`, { method: "POST" }),
+};
+
+export type Onboarding = { email: string; profile: Profile | null; consent: { version: string; at: string } | null; consentVersion: string };
+export type EntryInput = { typeId: string; values: Record<string, number>; unit: string; occurredAt: string; note?: string; syncToTwin: boolean };
+
+/** The signed-in person's own data. */
+export const me = {
+  onboarding: () => request<Onboarding>("/api/me/profile"),
+  saveProfile: (profile: Profile) => request<Onboarding>("/api/me/profile", { ...profile, consent: true }, "PUT"),
+  view: () => request<TwinView>("/api/me/view"),
+  connectTwin: (grantToken: string) =>
+    request<{ twinId: string; environment: "production" | "sandbox"; eventCount: number; expiresAt: string }>("/api/me/twin", { grantToken }),
+  disconnectTwin: () => request<{ ok: true }>("/api/me/twin", undefined, "DELETE"),
+  addEntry: (entry: EntryInput) =>
+    request<{ entry: ManualEntry; sync: { status: "synced" | "skipped" | "failed"; message?: string } }>("/api/me/entries", entry),
+  deleteEntry: (id: string) => request<{ ok: true }>(`/api/me/entries/${id}`, undefined, "DELETE"),
+  analyze: (symptoms: SymptomInput[]) => request<AnalysisResult>("/api/me/analyze", { symptoms }),
+  simulate: (type: SimulationType, durationMonths: number) => request<SimulationComparison>("/api/me/simulate", { type, durationMonths }),
+  flag: (symptoms: SymptomInput[]) =>
+    request<{ status: "created" | "exists" | "no_signal"; eventId?: string; occurredAt?: string; trace: TraceEntry[] }>("/api/me/flag", { symptoms }),
+  deleteAccount: (confirmEmail: string) => request<{ ok: true }>("/api/me/account", { confirmEmail }, "DELETE"),
+  exportUrl: `${apiBase}/api/me/export`,
 };
