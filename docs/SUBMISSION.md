@@ -22,8 +22,8 @@ People meet health information in pieces: a lab PDF, a medication list, a sympto
 ## A real product, not only a demo
 
 Anyone can create an account, give informed consent, and build their own health twin:
-- connect their OntoMorph twin by pasting the grant token they issue in OntoMorph (verified live, stored encrypted)
-- add their own lab and vital results (LOINC-coded, unit-converted, optionally written back to their twin)
+- get their own OntoMorph digital twin, created automatically at sign-up
+- add their own lab and vital results (LOINC-coded, unit-converted, written to their twin)
 - run symptom check-ins that are remembered, so recurring symptoms are recognised
 
 Health data is AES-256-GCM encrypted at rest. People can export everything or delete their account at any time. Sample twins remain available for anyone who wants to try it first.
@@ -37,7 +37,8 @@ Health data is AES-256-GCM encrypted at rest. People can export everything or de
 
 | Component | How MediTwin uses it |
 |---|---|
-| DTP sandbox grants | Mints grant tokens for the five synthetic twins (`GET /grants`), cached until expiry |
+| DTP twin creation | Creates each user's own twin at sign-up (`POST /twins`) and keeps its profile updated |
+| DTP sandbox grants | Mints grant tokens for the five synthetic sample twins (`GET /grants`), cached until expiry |
 | DTP twin events | Grant-scoped event list, normalized into measurements, concepts and a timeline |
 | DTP simulation | `hba1c_trajectory` / `ldl_trajectory` on the twin's own baseline, non-medication scenarios only |
 | DTP flag (write-back) | Saves the deterministic signal onto the twin as a `clinical_note` |

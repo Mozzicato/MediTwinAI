@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Spinner } from "@/components/ui/primitives";
 import { ENTRY_TYPES, ENTRY_TYPE_BY_ID, validateEntry } from "@/domain/entry-catalog";
 import type { PersonalState } from "@/domain/types";
 import { me } from "@/lib/api";
@@ -12,70 +11,30 @@ function todayLocal() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function TwinConnectionCard({ personal, onChanged }: { personal: PersonalState; onChanged: () => void }) {
+function TwinStatusCard({ personal }: { personal: PersonalState }) {
   const c = personal.connection;
-  const [token, setToken] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-
-  const connect = async () => {
-    setBusy(true); setMessage(null);
-    try {
-      const result = await me.connectTwin(token.trim());
-      setToken("");
-      setMessage({ kind: "ok", text: `Connected. MediTwin can read ${result.eventCount} events from your ${result.environment === "sandbox" ? "sandbox " : ""}twin.` });
-      onChanged();
-    } catch (e) {
-      setMessage({ kind: "error", text: e instanceof Error ? e.message : "Couldn't connect." });
-    } finally { setBusy(false); }
-  };
-  const disconnect = async () => {
-    if (!window.confirm("Disconnect your OntoMorph twin from MediTwin? Results you added in MediTwin are kept.")) return;
-    setBusy(true);
-    try { await me.disconnectTwin(); onChanged(); } finally { setBusy(false); }
-  };
-
+  const synced = personal.entries.filter((e) => e.twinEventId).length;
   return <section className="card">
     <div className="card-head">
-      <div><span className="eyebrow">OntoMorph digital twin</span><h3>{c.connected ? "Your twin is connected" : "Connect your twin"}</h3></div>
-      {c.connected && <span className={`pill pill-${c.status === "ok" ? "clear" : "attention"}`}>{c.status === "ok" ? "Connected" : c.status === "expired" ? "Needs renewal" : "Unreachable"}</span>}
+      <div><span className="eyebrow">OntoMorph digital twin</span><h3>{c.connected ? "Your twin is live on OntoMorph" : "Creating your twin"}</h3></div>
+      <span className={`pill pill-${c.connected && c.status === "ok" ? "clear" : "attention"}`}>{c.connected ? (c.status === "ok" ? "Active" : "Syncing") : "Pending"}</span>
     </div>
-    {c.connected ? <>
-      {c.message && <p className="notice-inline">{c.message}</p>}
-      <dl className="facts">
-        <div><dt>Environment</dt><dd>{c.environment === "sandbox" ? "Sandbox (synthetic twin)" : "Production"}</dd></div>
-        <div><dt>Access you granted</dt><dd>{c.systems ? c.systems.join(", ") : "All body systems"}{c.eventTypes ? ` · ${c.eventTypes.join(", ")}` : ""}</dd></div>
-        <div><dt>Connected</dt><dd>{c.connectedAt ? longDate(c.connectedAt) : "–"}</dd></div>
-        <div><dt>Grant expires</dt><dd>{c.expiresAt ? longDate(c.expiresAt) : "–"}</dd></div>
-      </dl>
-      <div className="row-actions">
-        <button className="button button-small" onClick={disconnect} disabled={busy}>Disconnect</button>
-      </div>
-      <p className="fine">To stop access completely, also revoke MediTwin&apos;s grant in your OntoMorph account.</p>
-    </> : <>
-      <p className="muted">Your OntoMorph twin brings together records from your providers, Apple or Google Health, and uploaded lab reports. Connecting it lets MediTwin read them. You choose which body systems it can see.</p>
-      <ol className="how-to">
-        <li>Create your twin at <a href="https://ontomorph.com/get-started" target="_blank" rel="noreferrer">ontomorph.com/get-started</a> and connect your records.</li>
-        <li>In OntoMorph, grant MediTwin access and copy the grant token.</li>
-        <li>Paste it here.</li>
-      </ol>
-      <textarea className="token-input" rows={3} value={token} onChange={(e) => setToken(e.target.value)} placeholder="Paste your grant token (it starts with eyJ…)" spellCheck={false} />
-      <div className="row-actions">
-        <button className="button button-primary" onClick={connect} disabled={busy || token.trim().length < 20}>{busy ? <Spinner label="Checking with OntoMorph…" /> : "Connect twin"}</button>
-      </div>
-    </>}
-    {message && <p className={message.kind === "ok" ? "success-text" : "error-text"} role="status">{message.text}</p>}
+    {c.message && <p className="notice-inline">{c.message}</p>}
+    {c.connected && <dl className="facts">
+      <div><dt>Twin ID</dt><dd><code>{c.twinId?.slice(0, 8)}…</code></dd></div>
+      <div><dt>Created</dt><dd>{c.connectedAt ? longDate(c.connectedAt) : "–"}</dd></div>
+      <div><dt>Results on your twin</dt><dd>{synced} of {personal.entries.length}</dd></div>
+    </dl>}
   </section>;
 }
 
-function AddResult({ connected, onAdded }: { connected: boolean; onAdded: () => void }) {
+function AddResult({ onAdded }: { onAdded: () => void }) {
   const [typeId, setTypeId] = useState(ENTRY_TYPES[0].id);
   const type = ENTRY_TYPE_BY_ID.get(typeId)!;
   const [values, setValues] = useState<Record<string, string>>({});
   const [unit, setUnit] = useState(type.fields[0].units[0]);
   const [date, setDate] = useState(todayLocal());
   const [note, setNote] = useState("");
-  const [sync, setSync] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
@@ -90,9 +49,9 @@ function AddResult({ connected, onAdded }: { connected: boolean; onAdded: () => 
     event.preventDefault();
     setBusy(true); setMessage(null);
     try {
-      const result = await me.addEntry({ typeId, values: numeric, unit, occurredAt: new Date(`${date}T12:00:00`).toISOString(), note: note || undefined, syncToTwin: connected && sync });
+      const result = await me.addEntry({ typeId, values: numeric, unit, occurredAt: new Date(`${date}T12:00:00`).toISOString(), note: note || undefined });
       setValues({}); setNote("");
-      setMessage({ kind: "ok", text: result.sync.status === "synced" ? "Saved, and added to your OntoMorph twin." : result.sync.message ?? "Saved." });
+      setMessage({ kind: "ok", text: result.message });
       onAdded();
     } catch (e) {
       setMessage({ kind: "error", text: e instanceof Error ? e.message : "Couldn't save that result." });
@@ -120,7 +79,6 @@ function AddResult({ connected, onAdded }: { connected: boolean; onAdded: () => 
       <label>Note (optional)
         <input value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Lab at City Clinic, fasting" />
       </label>
-      {connected && <label className="toggle"><input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} /> Also add it to my OntoMorph twin</label>}
       {localError && <p className="error-text">{localError}</p>}
       {message && <p className={message.kind === "ok" ? "success-text" : "error-text"} role="status">{message.text}</p>}
       <div className="row-actions"><button className="button button-primary" disabled={busy || Boolean(localError)}>{busy ? "Saving…" : "Save result"}</button></div>
@@ -131,7 +89,7 @@ function AddResult({ connected, onAdded }: { connected: boolean; onAdded: () => 
 function EntryList({ personal, onChanged }: { personal: PersonalState; onChanged: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const remove = async (id: string) => {
-    if (!window.confirm("Delete this result from MediTwin? A copy already added to your OntoMorph twin stays there.")) return;
+    if (!window.confirm("Delete this result from MediTwin? A copy already saved on your OntoMorph twin stays there.")) return;
     setBusy(id);
     try { await me.deleteEntry(id); onChanged(); } finally { setBusy(null); }
   };
@@ -153,9 +111,9 @@ function EntryList({ personal, onChanged }: { personal: PersonalState; onChanged
 
 export function MyData({ personal, onChanged }: { personal: PersonalState; onChanged: () => void }) {
   return <div className="my-data">
-    <TwinConnectionCard personal={personal} onChanged={onChanged} />
+    <TwinStatusCard personal={personal} />
     <div className="two-col">
-      <AddResult connected={personal.connection.connected && personal.connection.status === "ok"} onAdded={onChanged} />
+      <AddResult onAdded={onChanged} />
       <EntryList personal={personal} onChanged={onChanged} />
     </div>
   </div>;

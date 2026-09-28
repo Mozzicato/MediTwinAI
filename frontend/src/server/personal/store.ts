@@ -7,7 +7,7 @@ import { db } from "../db";
 // Persistence for a person's own data. Every health value, note, symptom and grant token is
 // encrypted before it is written; only ids, timestamps and routing fields are stored in clear.
 
-export const CONSENT_VERSION = "2026-09-v1";
+export const CONSENT_VERSION = "2026-09-v2";
 
 const now = () => new Date().toISOString();
 
@@ -34,28 +34,16 @@ export async function saveProfile(userId: string, profile: Profile) {
   await audit(userId, existing ? "profile.updated" : "consent.given", existing ? undefined : CONSENT_VERSION);
 }
 
-// ---- OntoMorph twin connection -------------------------------------------------------------------
+// ---- The person's OntoMorph twin (created by MediTwin with its platform key) ---------------------
 
-export interface StoredConnection { grantToken: string; twinId: string; host: string; expiresAt: string; connectedAt: string }
-
-export async function getConnection(userId: string): Promise<StoredConnection | null> {
-  const row = (await (await db()).execute({ sql: "SELECT token_enc, twin_id, host, expires_at, connected_at FROM twin_connections WHERE user_id = ?", args: [userId] })).rows[0];
-  if (!row) return null;
-  return { grantToken: decryptJson<string>(String(row.token_enc)), twinId: String(row.twin_id), host: String(row.host), expiresAt: String(row.expires_at), connectedAt: String(row.connected_at) };
+export async function getPlatformTwin(userId: string): Promise<{ twinId: string; createdAt: string } | null> {
+  const row = (await (await db()).execute({ sql: "SELECT twin_id, created_at FROM platform_twins WHERE user_id = ?", args: [userId] })).rows[0];
+  return row ? { twinId: String(row.twin_id), createdAt: String(row.created_at) } : null;
 }
 
-export async function saveConnection(userId: string, c: Omit<StoredConnection, "connectedAt">) {
-  await (await db()).execute({
-    sql: `INSERT INTO twin_connections (user_id, token_enc, twin_id, host, expires_at, connected_at) VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT(user_id) DO UPDATE SET token_enc = excluded.token_enc, twin_id = excluded.twin_id, host = excluded.host, expires_at = excluded.expires_at, connected_at = excluded.connected_at`,
-    args: [userId, encryptJson(c.grantToken), c.twinId, c.host, c.expiresAt, now()],
-  });
-  await audit(userId, "twin.connected", c.host);
-}
-
-export async function deleteConnection(userId: string) {
-  await (await db()).execute({ sql: "DELETE FROM twin_connections WHERE user_id = ?", args: [userId] });
-  await audit(userId, "twin.disconnected");
+export async function savePlatformTwin(userId: string, twinId: string, createdAt: string) {
+  await (await db()).execute({ sql: "INSERT OR REPLACE INTO platform_twins (user_id, twin_id, created_at) VALUES (?, ?, ?)", args: [userId, twinId, createdAt] });
+  await audit(userId, "twin.created");
 }
 
 // ---- Manual entries --------------------------------------------------------------------------------
@@ -79,6 +67,10 @@ export async function addEntry(userId: string, entry: EntryPayload & { occurredA
   return { id, occurredAt: entry.occurredAt, createdAt, twinEventId: entry.twinEventId ?? null, ...payload };
 }
 
+export async function markEntrySynced(userId: string, id: string, twinEventId: string) {
+  await (await db()).execute({ sql: "UPDATE health_entries SET twin_event_id = ? WHERE id = ? AND user_id = ?", args: [twinEventId, id, userId] });
+}
+
 export async function deleteEntry(userId: string, id: string) {
   const result = await (await db()).execute({ sql: "DELETE FROM health_entries WHERE id = ? AND user_id = ?", args: [id, userId] });
   if (result.rowsAffected) await audit(userId, "entry.deleted");
@@ -100,12 +92,12 @@ export async function addCheckin(userId: string, checkin: Omit<CheckIn, "id" | "
 // ---- Export & deletion ------------------------------------------------------------------------------
 
 export async function exportAll(userId: string, email: string) {
-  const [profile, connection, entries, checkins] = await Promise.all([getProfile(userId), getConnection(userId), listEntries(userId), listCheckins(userId, 10_000)]);
+  const [profile, twin, entries, checkins] = await Promise.all([getProfile(userId), getPlatformTwin(userId), listEntries(userId), listCheckins(userId, 10_000)]);
   const auditRows = (await (await db()).execute({ sql: "SELECT at, action, detail FROM audit_log WHERE user_id = ? ORDER BY at", args: [userId] })).rows;
   await audit(userId, "data.exported");
   return {
     exportedAt: now(), account: { email }, profile: profile?.profile ?? null, consent: profile?.consent ?? null,
-    twinConnection: connection ? { twinId: connection.twinId, host: connection.host, expiresAt: connection.expiresAt, connectedAt: connection.connectedAt } : null,
+    ontomorphTwin: twin,
     entries, checkins, activity: auditRows.map((r) => ({ at: r.at, action: r.action, detail: r.detail })),
   };
 }
@@ -116,7 +108,7 @@ export async function deleteAccount(userId: string) {
   await client.batch([
     { sql: "DELETE FROM checkins WHERE user_id = ?", args: [userId] },
     { sql: "DELETE FROM health_entries WHERE user_id = ?", args: [userId] },
-    { sql: "DELETE FROM twin_connections WHERE user_id = ?", args: [userId] },
+    { sql: "DELETE FROM platform_twins WHERE user_id = ?", args: [userId] },
     { sql: "DELETE FROM profiles WHERE user_id = ?", args: [userId] },
     { sql: "DELETE FROM audit_log WHERE user_id = ?", args: [userId] },
     { sql: "DELETE FROM users WHERE id = ?", args: [userId] },

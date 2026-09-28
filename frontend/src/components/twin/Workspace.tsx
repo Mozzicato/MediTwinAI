@@ -33,7 +33,8 @@ function operationsFor(source: WorkspaceSource) {
       load: () => me.view(),
       analyze: (symptoms: SymptomInput[]) => me.analyze(symptoms),
       flag: (symptoms: SymptomInput[]): Promise<FlagResult> => me.flag(symptoms),
-      simulate: (type: SimulationType, months: number): Promise<SimulationComparison> => me.simulate(type, months),
+      // OntoMorph offers trajectory simulation on grant-connected twins only, so What-if is hidden for personal twins.
+      simulate: (): Promise<SimulationComparison> => Promise.reject(new Error("What-if projections aren't available for personal twins yet.")),
     };
   }
   const id = source.persona.twinId;
@@ -230,10 +231,10 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
       <aside className="sidebar">
         {persona && <div className="patient">
           <div className="twin-avatar">{persona.name[0]}</div>
-          <div><b>{persona.name}</b><span>{persona.age} years{persona.sex !== "unspecified" ? ` · ${persona.sex}` : ""}</span></div>
+          <div><b>{persona.name}</b><span>{persona.age} years · {persona.sex}</span></div>
         </div>}
         {personalMode
-          ? <span className="synthetic-tag">{personal?.connection.connected ? `OntoMorph twin ${personal.connection.status === "ok" ? "connected" : "needs attention"}` : "OntoMorph twin not connected"} · {personal?.entries.length ?? 0} results added</span>
+          ? <span className="synthetic-tag">{personal?.connection.connected ? (personal.connection.status === "ok" ? "OntoMorph twin active" : "OntoMorph twin syncing") : "Creating your OntoMorph twin…"} · {personal?.entries.length ?? 0} results</span>
           : <span className="synthetic-tag">Synthetic sample patient · OntoMorph sandbox twin</span>}
         <nav className="side-nav" aria-label="Workspace">
           {nav.map((n) => <button key={n.id} className={view === n.id ? "active" : ""} disabled={n.disabled} onClick={() => go(n.id)}>{n.label}</button>)}
@@ -264,9 +265,8 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
           {view === "overview" && empty && <section className="card welcome">
             <span className="eyebrow">Welcome{persona ? `, ${persona.name}` : ""}</span>
             <h2>Let&apos;s build your health twin</h2>
-            <p className="muted">MediTwin needs some of your health information to work with. Start with either option, or both.</p>
+            <p className="muted">Your OntoMorph twin has been created. Add a result or check how you feel to get started.</p>
             <div className="welcome-options">
-              <button className="welcome-option" onClick={() => go("mydata")}><b>Connect your OntoMorph twin</b><span>Bring in records from your providers, Apple or Google Health, and uploaded lab reports.</span></button>
               <button className="welcome-option" onClick={() => go("mydata")}><b>Add a result yourself</b><span>HbA1c, glucose, blood pressure, cholesterol and more, from a lab report or home device.</span></button>
               <button className="welcome-option" onClick={() => go("symptoms")}><b>Check how you feel</b><span>Record symptoms now. They&apos;ll be compared with results as you add them.</span></button>
             </div>

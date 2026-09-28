@@ -9,7 +9,6 @@ process.env.DATABASE_URL = `file:${path.join(dir, "test.db").replace(/\\/g, "/")
 process.env.DATA_ENCRYPTION_KEY = "test-only-encryption-key";
 process.env.HOLON_API_KEY = "";
 process.env.ONTOMORPH_API_KEY = "";
-process.env.DTP_LIVE_PERSONAL = "";
 process.env.GROQ_API_KEY = "";
 process.env.ANTHROPIC_API_KEY = "";
 
@@ -44,15 +43,18 @@ describe("personal accounts", () => {
 
     // A view before onboarding asks the person to finish setup.
     await expect(m.service.personalView(newTrace(), user)).rejects.toMatchObject({ status: 409 });
-    await expect(m.service.saveProfile(user, { firstName: "Ada", birthYear: new Date().getUTCFullYear() - 5, sex: "female" })).rejects.toMatchObject({ status: 400 });
-    await m.service.saveProfile(user, { firstName: "Ada", birthYear: 1990, sex: "female" });
+    const profile = { firstName: "Ada", birthYear: 1990, sex: "female" as const, heightCm: 168, weightKg: 64, skinTone: "V" as const };
+    await expect(m.service.saveProfile(newTrace(), user, { ...profile, birthYear: new Date().getUTCFullYear() - 5 })).rejects.toMatchObject({ status: 400 });
+    await expect(m.service.saveProfile(newTrace(), user, { ...profile, heightCm: 1.68 })).rejects.toMatchObject({ status: 400 });
+    // OntoMorph is not configured in this test, so the twin can't be created yet; onboarding still succeeds.
+    await m.service.saveProfile(newTrace(), user, profile);
 
     // Entries are validated against the catalog.
-    await expect(m.service.addEntry(newTrace(), user, { typeId: "hba1c", values: { value: 70 }, unit: "%", occurredAt: new Date().toISOString(), syncToTwin: false }))
+    await expect(m.service.addEntry(newTrace(), user, { typeId: "hba1c", values: { value: 70 }, unit: "%", occurredAt: new Date().toISOString() }))
       .rejects.toMatchObject({ status: 400 });
-    const { entry, sync } = await m.service.addEntry(newTrace(), user, { typeId: "hba1c", values: { value: 7.4 }, unit: "%", occurredAt: "2026-09-01T09:00:00Z", note: "Clinic lab", syncToTwin: true });
-    expect(sync.status).toBe("skipped");
-    await m.service.addEntry(newTrace(), user, { typeId: "blood_pressure", values: { systolic: 128, diastolic: 82 }, unit: "mmHg", occurredAt: "2026-09-10T09:00:00Z", syncToTwin: false });
+    const { entry, synced } = await m.service.addEntry(newTrace(), user, { typeId: "hba1c", values: { value: 7.4 }, unit: "%", occurredAt: "2026-09-01T09:00:00Z", note: "Clinic lab" });
+    expect(synced).toBe(false); // kept safely in MediTwin until the twin exists
+    await m.service.addEntry(newTrace(), user, { typeId: "blood_pressure", values: { systolic: 128, diastolic: 82 }, unit: "mmHg", occurredAt: "2026-09-10T09:00:00Z" });
 
     // Health content is encrypted at rest.
     const client = await m.db.db();
@@ -64,6 +66,8 @@ describe("personal accounts", () => {
     // The person's own entries flow through the standard pipeline.
     const view = await m.service.personalView(newTrace(), user);
     expect(view.persona.name).toBe("Ada");
+    expect(view.personal?.connection).toMatchObject({ connected: false, status: "error" });
+    expect(view.simulations).toEqual([]);
     expect(view.personal?.entries).toHaveLength(2);
     const hba1c = view.events.flatMap((e) => e.measurements).find((mm) => mm.key === "hba1c");
     expect(hba1c).toMatchObject({ value: 7.4, loinc: "4548-4", status: "NO_REFERENCE" }); // HOLON disabled in this test
@@ -77,13 +81,12 @@ describe("personal accounts", () => {
     expect(second.primary?.evidence.some((e) => e.label.includes("your earlier check-in"))).toBe(true);
     expect((await m.service.personalView(newTrace(), user)).personal?.checkins).toHaveLength(2);
 
-    // Features that need a twin say so.
-    await expect(m.service.simulatePersonal(newTrace(), user, "hba1c_trajectory", 6)).rejects.toMatchObject({ status: 409 });
-    await expect(m.service.connectTwin(newTrace(), user, "not-a-token")).rejects.toMatchObject({ status: 400 });
+    // Writing a signal to the twin needs a reachable twin, and says so otherwise.
+    await expect(m.service.flagPersonal(newTrace(), user, symptoms)).rejects.toMatchObject({ status: 503 });
 
     // Export is complete and decrypted.
     const exported = await m.service.exportData(user);
-    expect(exported.profile).toEqual({ firstName: "Ada", birthYear: 1990, sex: "female" });
+    expect(exported.profile).toEqual(profile);
     expect(exported.entries).toHaveLength(2);
     expect(exported.checkins).toHaveLength(2);
     expect(exported.activity.map((a) => a.action)).toEqual(expect.arrayContaining(["consent.given", "entry.added", "checkin.saved"]));
@@ -93,7 +96,7 @@ describe("personal accounts", () => {
     await expect(m.service.deleteEntry(user, entry.id)).rejects.toMatchObject({ status: 404 });
     await m.service.deleteAccount(user);
     expect(await m.auth.userExists(user.id)).toBe(false);
-    for (const table of ["profiles", "health_entries", "checkins", "twin_connections", "audit_log"]) {
+    for (const table of ["profiles", "health_entries", "checkins", "platform_twins", "audit_log"]) {
       const count = (await client.execute({ sql: `SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?`, args: [user.id] })).rows[0];
       expect(Number(count.n), table).toBe(0);
     }

@@ -36,7 +36,7 @@ export interface TwinAccess {
   host?: string;
 }
 
-async function call<T>(path: string, init: { method?: "GET" | "POST"; bearer?: string; body?: unknown; timeoutMs?: number; host?: string } = {}): Promise<T> {
+async function call<T>(path: string, init: { method?: "GET" | "POST" | "PATCH"; bearer?: string; body?: unknown; timeoutMs?: number; host?: string } = {}): Promise<T> {
   if (!config.ontomorphApiKey) throw new DtpError("ONTOMORPH_API_KEY is not configured", "NOT_CONFIGURED", 0);
   const headers: Record<string, string> = { Accept: "application/json", "X-DTP-API-Key": config.ontomorphApiKey };
   if (init.bearer) headers.Authorization = `Bearer ${init.bearer}`;
@@ -136,4 +136,37 @@ export async function flagEvent(trace: Trace, grant: TwinAccess, system: string,
 export async function writeEvent(trace: Trace, grant: TwinAccess, event: { eventType: string; occurredAt: string; title: string; data: Record<string, unknown> }) {
   return trace.step("DTP", `write ${event.eventType}`, () =>
     call<DtpEvent>(`/provider/twins/${encodeURIComponent(grant.twinId)}/events`, { method: "POST", bearer: grant.grantToken, host: grant.host, body: event }));
+}
+
+// ---- Twins owned by MediTwin's account (created per user with the API key, no grant needed) ----
+
+export interface PlatformTwinProfile {
+  age: number;
+  sex: "male" | "female" | "intersex";
+  heightCm: number;
+  weightKg: number;
+  bmi: number;
+  skinTone: "I" | "II" | "III" | "IV" | "V" | "VI";
+  ancestry: string;
+}
+
+export async function createTwin(trace: Trace, displayName: string, profile: PlatformTwinProfile) {
+  return trace.step("DTP", "create twin", () =>
+    call<{ id: string; createdAt: string }>("/twins", { method: "POST", host: config.ontomorphApiUrl, body: { displayName, personalisationProfile: profile } }));
+}
+
+export async function updateTwin(trace: Trace, twinId: string, displayName: string, profile: PlatformTwinProfile) {
+  return trace.step("DTP", "update twin profile", () =>
+    call<{ id: string }>(`/twins/${encodeURIComponent(twinId)}`, { method: "PATCH", host: config.ontomorphApiUrl, body: { displayName, personalisationProfile: profile } }));
+}
+
+export async function listOwnedEvents(trace: Trace, twinId: string): Promise<DtpEvent[]> {
+  return trace.step("DTP", "twin events", () =>
+    call<DtpEvent[]>(`/twins/${encodeURIComponent(twinId)}/events?limit=200`, { host: config.ontomorphApiUrl }),
+  (events) => ({ status: "ok", detail: `${events.length} events` }));
+}
+
+export async function writeOwnedEvent(trace: Trace, twinId: string, event: { eventType: string; occurredAt: string; title: string; description?: string; data: Record<string, unknown> }) {
+  return trace.step("DTP", `write ${event.eventType}`, () =>
+    call<DtpEvent>(`/twins/${encodeURIComponent(twinId)}/events`, { method: "POST", host: config.ontomorphApiUrl, body: event }));
 }

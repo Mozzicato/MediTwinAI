@@ -131,7 +131,7 @@ export interface Persona {
   twinId: string;
   name: string;
   age: number;
-  sex: "male" | "female" | "unspecified";
+  sex: "male" | "female" | "intersex";
   headline: string;
   featured?: boolean;
 }
@@ -271,12 +271,18 @@ export interface SimulationComparison {
 
 // ---- Personal accounts ------------------------------------------------------------------------
 
-export type ProfileSex = "male" | "female" | "unspecified";
+export type ProfileSex = "male" | "female" | "intersex";
+export type SkinTone = "I" | "II" | "III" | "IV" | "V" | "VI";
 
+/** What OntoMorph needs to create and personalise the person's twin. */
 export interface Profile {
   firstName: string;
   birthYear: number;
   sex: ProfileSex;
+  heightCm: number;
+  weightKg: number;
+  /** Fitzpatrick skin type, used by OntoMorph to personalise the twin's appearance. */
+  skinTone: SkinTone;
 }
 
 export interface ManualEntry {

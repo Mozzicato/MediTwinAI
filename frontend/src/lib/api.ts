@@ -48,21 +48,17 @@ export const api = {
 };
 
 export type Onboarding = { email: string; profile: Profile | null; consent: { version: string; at: string } | null; consentVersion: string };
-export type EntryInput = { typeId: string; values: Record<string, number>; unit: string; occurredAt: string; note?: string; syncToTwin: boolean };
+export type EntryInput = { typeId: string; values: Record<string, number>; unit: string; occurredAt: string; note?: string };
 
 /** The signed-in person's own data. */
 export const me = {
   onboarding: () => request<Onboarding>("/api/me/profile"),
   saveProfile: (profile: Profile) => request<Onboarding>("/api/me/profile", { ...profile, consent: true }, "PUT"),
   view: () => request<TwinView>("/api/me/view"),
-  connectTwin: (grantToken: string) =>
-    request<{ twinId: string; environment: "production" | "sandbox"; eventCount: number; expiresAt: string }>("/api/me/twin", { grantToken }),
-  disconnectTwin: () => request<{ ok: true }>("/api/me/twin", undefined, "DELETE"),
   addEntry: (entry: EntryInput) =>
-    request<{ entry: ManualEntry; sync: { status: "synced" | "skipped" | "failed"; message?: string } }>("/api/me/entries", entry),
+    request<{ entry: ManualEntry; synced: boolean; message: string }>("/api/me/entries", entry),
   deleteEntry: (id: string) => request<{ ok: true }>(`/api/me/entries/${id}`, undefined, "DELETE"),
   analyze: (symptoms: SymptomInput[]) => request<AnalysisResult>("/api/me/analyze", { symptoms }),
-  simulate: (type: SimulationType, durationMonths: number) => request<SimulationComparison>("/api/me/simulate", { type, durationMonths }),
   flag: (symptoms: SymptomInput[]) =>
     request<{ status: "created" | "exists" | "no_signal"; eventId?: string; occurredAt?: string; trace: TraceEntry[] }>("/api/me/flag", { symptoms }),
   deleteAccount: (confirmEmail: string) => request<{ ok: true }>("/api/me/account", { confirmEmail }, "DELETE"),

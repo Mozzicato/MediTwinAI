@@ -5,7 +5,7 @@ import { createClient, type Client } from "@libsql/client";
 // Health content is never stored in plain text: see crypto.ts.
 
 const databaseUrl = process.env.DATABASE_URL;
-const databaseToken = process.env.TURSO_AUTH_TOKEN ?? process.env.TURSO_DATABASE_TOKEN ?? process.env.TOKEN;
+const databaseToken = process.env.TURSO_AUTH_TOKEN;
 
 let client: Client | undefined;
 let ready: Promise<void> | undefined;
@@ -28,13 +28,10 @@ const SCHEMA = [
     consented_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS twin_connections (
+  `CREATE TABLE IF NOT EXISTS platform_twins (
     user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_enc TEXT NOT NULL,
     twin_id TEXT NOT NULL,
-    host TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    connected_at TEXT NOT NULL
+    created_at TEXT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS health_entries (
     id TEXT PRIMARY KEY NOT NULL,

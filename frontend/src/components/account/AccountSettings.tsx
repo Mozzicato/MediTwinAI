@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { PersonalState, Profile } from "@/domain/types";
 import { me } from "@/lib/api";
 import { longDate } from "@/lib/format";
-import { ProfileFields } from "./Onboarding";
+import { ProfileFields, complete } from "./Onboarding";
 
 export function AccountSettings({ personal, onChanged, onDeleted }: { personal: PersonalState; onChanged: () => void; onDeleted: () => void }) {
   const [profile, setProfile] = useState<Partial<Profile>>(personal.profile ?? {});
@@ -17,7 +17,8 @@ export function AccountSettings({ personal, onChanged, onDeleted }: { personal: 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true); setSaved("");
-    try { await me.saveProfile(profile as Profile); setSaved("Saved."); onChanged(); }
+    if (!complete(profile)) { setSaved("Fill in every field."); setSaving(false); return; }
+    try { await me.saveProfile(profile); setSaved("Saved. Your OntoMorph twin was updated too."); onChanged(); }
     catch (e) { setSaved(e instanceof Error ? e.message : "Couldn't save."); }
     finally { setSaving(false); }
   };
@@ -41,7 +42,7 @@ export function AccountSettings({ personal, onChanged, onDeleted }: { personal: 
       <h3>Your data, your control</h3>
       <ul className="privacy-facts">
         <li>You agreed to consent version <b>{personal.consent?.version}</b> on {personal.consent ? longDate(personal.consent.at) : "–"}.</li>
-        <li>Results, notes, check-ins and your OntoMorph grant are encrypted before storage (AES-256-GCM).</li>
+        <li>Your results are stored on your OntoMorph twin. MediTwin&apos;s own copy, notes and check-ins are encrypted before storage (AES-256-GCM).</li>
         <li>Explanations are written from anonymised evidence. Your name and email are never sent to the AI provider.</li>
       </ul>
       <div className="row-actions">
@@ -52,7 +53,7 @@ export function AccountSettings({ personal, onChanged, onDeleted }: { personal: 
     <section className="card danger-zone">
       <span className="eyebrow">Delete account</span>
       <h3>Permanently delete everything</h3>
-      <p className="muted">This removes your account, profile, results, check-ins, twin connection and activity log from MediTwin. It can&apos;t be undone. Data already on your OntoMorph twin stays there.</p>
+      <p className="muted">This removes your account, profile, results, check-ins and activity log from MediTwin. It can&apos;t be undone. Data already on your OntoMorph twin stays there.</p>
       <label className="auth-form">Type your email to confirm
         <input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={personal.email} autoComplete="off" />
       </label>

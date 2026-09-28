@@ -13,7 +13,6 @@ export async function POST(request: NextRequest) {
     unit: z.string().max(20),
     occurredAt: z.string().max(40),
     note: z.string().max(500).optional(),
-    syncToTwin: z.boolean(),
   }));
   if (body instanceof NextResponse) return body;
   return withUser(request, "add entry", (user, trace) => addEntry(trace, user, body));
