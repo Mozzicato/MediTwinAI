@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Inter } from "next/font/google";
+import { Fraunces, Inter, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
 const sans = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const display = Fraunces({ subsets: ["latin"], variable: "--font-display", axes: ["opsz"] });
+const headline = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-headline", weight: ["700", "800"] });
 
 export const metadata: Metadata = {
   title: "MediTwin · Personal health context",
@@ -14,7 +15,7 @@ export const viewport: Viewport = { themeColor: "#0e2a30" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${sans.variable} ${display.variable}`}>
+    <html lang="en" className={`${sans.variable} ${display.variable} ${headline.variable}`}>
       <body>{children}</body>
     </html>
   );

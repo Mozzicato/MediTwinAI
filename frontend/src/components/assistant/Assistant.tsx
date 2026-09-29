@@ -3,6 +3,9 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { LANGUAGES, LANGUAGE_BY_ID, greeting, type AssistantAction, type AssistantLanguage } from "@/domain/assistant";
 import type { AssistantChat, ChatItem } from "@/lib/assistant-client";
+import { pickVoice, speak, speechSupported, stopSpeaking, unlockSpeech, useSpeakingId } from "@/lib/speech";
+
+const HANDS_FREE_KEY = "meditwin.assistant.hands-free";
 
 // ---- Minimal markdown: paragraphs, bullet/numbered lists, **bold**. Rendered as React nodes. ----
 
@@ -38,14 +41,15 @@ function RichText({ text }: { text: string }) {
   return <>{blocks}</>;
 }
 
-// ---- Voice: speech-to-text and read-aloud, where the browser supports them ----------------------
+// ---- Voice: live speech-to-text, where the browser supports it ------------------------------------
 
+interface RecognitionResultLike { isFinal: boolean; 0: { transcript: string } }
 interface RecognitionLike {
-  lang: string; interimResults: boolean; continuous: boolean;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  lang: string; interimResults: boolean; continuous: boolean; maxAlternatives: number;
+  onresult: ((e: { results: ArrayLike<RecognitionResultLike> }) => void) | null;
   onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
-  start(): void; stop(): void;
+  start(): void; stop(): void; abort(): void;
 }
 type RecognitionCtor = new () => RecognitionLike;
 
@@ -55,46 +59,73 @@ function recognitionCtor(): RecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-function useVoiceInput(language: AssistantLanguage, onText: (text: string) => void) {
+const VOICE_ERRORS: Record<string, string> = {
+  "not-allowed": "Allow microphone access in your browser to speak your message.",
+  "service-not-allowed": "Allow microphone access in your browser to speak your message.",
+  "language-not-supported": "Your browser can't recognise speech in this language yet. Try English or Pidgin, or type instead.",
+  "no-speech": "I didn't hear anything. Tap the microphone and try again.",
+  "audio-capture": "No microphone was found.",
+  network: "Voice input needs an internet connection. Please try again.",
+};
+
+/** Transcribes as the person speaks. `onUpdate` gets the running text, `onEnd` the final text. */
+function useVoiceInput(language: AssistantLanguage, onUpdate: (text: string) => void, onEnd: (text: string) => void) {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<RecognitionLike | null>(null);
+  const handlers = useRef({ onUpdate, onEnd });
+  useEffect(() => { handlers.current = { onUpdate, onEnd }; });
   useEffect(() => { const t = setTimeout(() => setSupported(Boolean(recognitionCtor())), 0); return () => clearTimeout(t); }, []);
-  useEffect(() => () => ref.current?.stop(), []);
+  useEffect(() => () => ref.current?.abort(), []);
 
-  const toggle = () => {
-    if (listening) { ref.current?.stop(); return; }
+  const stop = () => ref.current?.stop();
+  const start = () => {
     const Ctor = recognitionCtor();
-    if (!Ctor) return;
+    if (!Ctor || ref.current) return;
+    stopSpeaking(); // don't transcribe our own read-aloud
     const rec = new Ctor();
     rec.lang = LANGUAGE_BY_ID.get(language)?.speech ?? "en-NG";
-    rec.interimResults = false;
+    rec.interimResults = true;
     rec.continuous = false;
-    rec.onresult = (e) => { const said = Array.from(e.results).map((r) => r[0]?.transcript ?? "").join(" ").trim(); if (said) onText(said); };
-    rec.onerror = (e) => setError(e.error === "not-allowed" ? "Allow microphone access to speak your message." : e.error === "language-not-supported" ? "Voice input isn't available in this language on your browser yet." : e.error === "no-speech" ? "I didn't hear anything. Try again." : null);
-    rec.onend = () => { setListening(false); ref.current = null; };
+    rec.maxAlternatives = 1;
+    let finalText = "";
+    rec.onresult = (e) => {
+      let interim = "";
+      finalText = "";
+      for (const result of Array.from(e.results)) {
+        if (result.isFinal) finalText += result[0].transcript; else interim += result[0].transcript;
+      }
+      handlers.current.onUpdate(`${finalText}${interim}`.trim());
+    };
+    rec.onerror = (e) => setError(VOICE_ERRORS[e.error] ?? (e.error === "aborted" ? null : "Voice input stopped. Please try again."));
+    rec.onend = () => { setListening(false); ref.current = null; handlers.current.onEnd(finalText.trim()); };
     ref.current = rec;
     setError(null);
     setListening(true);
-    try { rec.start(); } catch { setListening(false); }
+    try { rec.start(); } catch { ref.current = null; setListening(false); }
   };
-  return { listening, supported, error, toggle };
+  return { listening, supported, error, start, stop, toggle: () => (listening ? stop() : start()) };
 }
 
-function ListenButton({ text, language }: { text: string; language: AssistantLanguage }) {
-  const [speaking, setSpeaking] = useState(false);
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
-  const toggle = () => {
-    if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
-    const utterance = new SpeechSynthesisUtterance(text.replace(/\*\*/g, "").replace(/^\s*[-*•]\s+/gm, ""));
-    utterance.lang = LANGUAGE_BY_ID.get(language)?.speech ?? "en-NG";
-    utterance.onend = () => setSpeaking(false);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-    setSpeaking(true);
-  };
-  return <button type="button" className="chat-meta-button" onClick={toggle} aria-pressed={speaking}>{speaking ? "■ Stop" : "▶ Listen"}</button>;
+// ---- Read-aloud ------------------------------------------------------------------------------------
+
+function spokenText(item: ChatItem) {
+  const urgent = item.urgent ? `${item.urgent.guidance.title}. ${item.urgent.guidance.steps.join(" ")}` : "";
+  return [urgent, item.text].filter(Boolean).join(" ");
+}
+
+function ListenButton({ item, language }: { item: ChatItem; language: AssistantLanguage }) {
+  const speakingId = useSpeakingId();
+  if (!speechSupported()) return null;
+  const active = speakingId === item.id;
+  const { native } = pickVoice(language);
+  const lang = LANGUAGE_BY_ID.get(language);
+  return <button type="button" className={`chat-meta-button${active ? " on" : ""}`} aria-pressed={active}
+    title={native ? undefined : `Your device has no ${lang?.label} voice, so an English voice reads this aloud.`}
+    onClick={() => (active ? stopSpeaking() : void speak(item.id, spokenText(item), language))}>
+    {active ? <><span className="eq" aria-hidden="true"><i /><i /><i /></span> Stop</> : "▶ Listen"}
+  </button>;
 }
 
 // ---- Pieces ------------------------------------------------------------------------------------
@@ -146,9 +177,9 @@ function Bubble({ item, language, onAction }: { item: ChatItem; language: Assist
         {item.status === "streaming" && item.text && <span className="caret" aria-hidden="true" />}
       </div>}
       {item.actions && item.actions.length > 0 && <div className="chat-actions">{item.actions.map((a, i) => <ActionCard key={i} action={a} onAction={onAction} />)}</div>}
-      {item.status === "done" && item.text && !item.urgent && <div className="chat-meta">
-        <span>{item.source === "MODEL_INFERRED" ? `AI answer · safety-checked${item.removed ? ` · ${item.removed} sentence removed` : ""}` : "From MediTwin"}</span>
-        <ListenButton text={item.text} language={language} />
+      {item.status === "done" && (item.text || item.urgent) && <div className="chat-meta">
+        <span>{item.urgent ? "Reviewed guidance" : item.source === "MODEL_INFERRED" ? `AI answer · safety-checked${item.removed ? ` · ${item.removed} sentence removed` : ""}` : "From MediTwin"}</span>
+        <ListenButton item={item} language={language} />
       </div>}
     </div>
   </div>;
@@ -169,8 +200,45 @@ export function Assistant({ chat, name, starters, onAction, variant, onClose, on
   const [draft, setDraft] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const voice = useVoiceInput(chat.language, (said) => setDraft((d) => (d ? `${d} ${said}` : said)));
+  const [handsFree, setHandsFree] = useState(false);
+  const baseRef = useRef("");
+  // Answers already on screen are never read aloud automatically; only new ones are.
+  const spokenRef = useRef(new Set(chat.items.map((i) => i.id)));
   const last = chat.items.at(-1);
+
+  const submit = (text = draft) => {
+    if (!text.trim() || chat.busy) return;
+    stopSpeaking();
+    void chat.send(text);
+    setDraft("");
+  };
+  const voice = useVoiceInput(chat.language,
+    (said) => setDraft(baseRef.current ? `${baseRef.current} ${said}` : said),
+    (said) => {
+      const full = (baseRef.current ? `${baseRef.current} ${said}` : said).trim();
+      // Hands-free: what you say is sent straight away, like a voice note.
+      if (handsFree && said && !chat.busy) submit(full);
+    });
+  const startVoice = () => { baseRef.current = draft.trim(); voice.toggle(); };
+
+  useEffect(() => {
+    const t = setTimeout(() => { try { setHandsFree(window.localStorage.getItem(HANDS_FREE_KEY) === "1"); } catch { /* storage unavailable */ } }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => () => stopSpeaking(), []);
+  const toggleHandsFree = () => {
+    const next = !handsFree;
+    if (next) { unlockSpeech(); for (const item of chat.items) spokenRef.current.add(item.id); } else stopSpeaking();
+    setHandsFree(next);
+    try { window.localStorage.setItem(HANDS_FREE_KEY, next ? "1" : "0"); } catch { /* storage unavailable */ }
+  };
+  // Hands-free: read each finished answer aloud once.
+  useEffect(() => {
+    if (!handsFree || !last || last.role !== "assistant" || last.status === "streaming" || spokenRef.current.has(last.id)) return;
+    spokenRef.current.add(last.id);
+    const text = spokenText(last);
+    if (text) void speak(last.id, text, chat.language);
+  }, [handsFree, last, chat.language]);
 
   useEffect(() => {
     const el = logRef.current;
@@ -184,11 +252,6 @@ export function Assistant({ chat, name, starters, onAction, variant, onClose, on
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [draft]);
 
-  const submit = (text = draft) => {
-    if (!text.trim() || chat.busy) return;
-    void chat.send(text);
-    setDraft("");
-  };
   const lang = LANGUAGE_BY_ID.get(chat.language);
 
   return <section className={`chat chat-${variant}`} aria-label="MediTwin assistant">
@@ -205,7 +268,13 @@ export function Assistant({ chat, name, starters, onAction, variant, onClose, on
             {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.native}{l.beta ? " (beta)" : ""}</option>)}
           </select>
         </label>
-        {chat.items.length > 0 && <button type="button" className="icon-button" onClick={chat.reset} title="New conversation" aria-label="New conversation">↺</button>}
+        {speechSupported() && <button type="button" className={`icon-button voice-mode${handsFree ? " on" : ""}`} onClick={toggleHandsFree} aria-pressed={handsFree}
+          title={handsFree ? "Voice mode on: answers are read aloud, and what you say is sent automatically" : "Turn on voice mode"} aria-label="Voice mode">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor" />{handsFree
+            ? <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" />
+            : <path d="m16.5 9.5 5 5m0-5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />}</svg>
+        </button>}
+        {chat.items.length > 0 && <button type="button" className="icon-button" onClick={() => { stopSpeaking(); chat.reset(); }} title="New conversation" aria-label="New conversation">↺</button>}
         {onExpand && <button type="button" className="icon-button" onClick={onExpand} title="Open full screen" aria-label="Open full screen">⤢</button>}
         {onClose && <button type="button" className="icon-button" onClick={onClose} title="Close" aria-label="Close assistant">×</button>}
       </div>
@@ -224,11 +293,17 @@ export function Assistant({ chat, name, starters, onAction, variant, onClose, on
       {chat.items.map((item) => <Bubble key={item.id} item={item} language={chat.language} onAction={onAction} />)}
     </div>
 
+    {voice.listening && <div className="listening-bar" role="status">
+      <span className="wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+      <span>Listening in {lang?.label ?? "English"}…{handsFree ? " I'll send it when you stop." : " Tap the mic when you're done."}</span>
+      <button type="button" className="link-button" onClick={voice.stop}>Done</button>
+    </div>}
+    {handsFree && !voice.listening && <p className="voice-mode-note">Voice mode is on: answers are read aloud. Tap the mic to talk.</p>}
     <form className="chat-compose" onSubmit={(e) => { e.preventDefault(); submit(); }}>
       <textarea ref={inputRef} rows={1} value={draft} maxLength={1200} onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
         placeholder={voice.listening ? "Listening…" : "Ask about your health…"} aria-label="Message" />
-      {voice.supported && <button type="button" className={`icon-button mic${voice.listening ? " on" : ""}`} onClick={voice.toggle}
+      {voice.supported && <button type="button" className={`icon-button mic${voice.listening ? " on" : ""}`} onClick={() => (voice.listening ? voice.stop() : startVoice())}
         aria-pressed={voice.listening} title={voice.listening ? "Stop listening" : "Speak your message"} aria-label={voice.listening ? "Stop listening" : "Speak your message"}>
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" fill="currentColor" /></svg>
       </button>}

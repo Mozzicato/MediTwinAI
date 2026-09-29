@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AboutButton, AboutPlatform } from "@/components/about/AboutPlatform";
 import { AccountSettings } from "@/components/account/AccountSettings";
 import { Assistant, AssistantLauncher, type ActionHandler } from "@/components/assistant/Assistant";
 import { History } from "@/components/account/History";
@@ -73,8 +74,10 @@ function summarizeTrace(trace: TraceEntry[]) {
   return `${part("OntoMorph DTP", dtp)} · ${part("HOLON", holon)} · slowest ${ms(slowest)}`;
 }
 
-export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }: {
+export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted, welcome = false }: {
   source: WorkspaceSource; user: AuthUser | null; onExit: () => void; onSignOut: () => void; onAccountDeleted: () => void;
+  /** True right after a new member creates their twin: opens the About walkthrough once. */
+  welcome?: boolean;
 }) {
   const personalMode = source.kind === "personal";
   const guided = source.kind === "sample" && source.guided;
@@ -98,6 +101,7 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
   const [tourTarget, setTourTarget] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(welcome);
   const [tech, setTech] = useState(false);
 
   useEffect(() => {
@@ -312,6 +316,7 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
           : <span className="chip chip-demo"><i /> Sample twin · synthetic data</span>}
         <span className="topbar-note">Not a diagnosis</span>
         <div className="topbar-right">
+          <AboutButton onClick={() => setAboutOpen(true)} compact />
           {!personalMode && tourIndex === null && twin && <button className="button button-small" onClick={() => void goTour(0)}>Guided demo</button>}
           {user && <button className="link-button small topbar-user" onClick={onSignOut} title="Sign out">{user.email} · Sign out</button>}
         </div>
@@ -332,6 +337,7 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
             {records.map(navButton)}
             {settings.length > 0 && <span className="side-label">Settings</span>}
             {settings.map(navButton)}
+            <button onClick={() => setAboutOpen(true)}>About MediTwin</button>
           </nav>
           {twin && twin.systems.length > 0 && <div className="side-systems">
             <span className="eyebrow">Body systems</span>
@@ -366,6 +372,7 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
             {view === "more" && <div className="more-list">
               {[...primary, ...records, ...settings].filter((n) => !bottom.some((b) => b.id === n.id)).map((n) =>
                 <button key={n.id} className="more-item" onClick={() => go(n.id)}>{n.label}<span aria-hidden="true">›</span></button>)}
+              <button className="more-item" onClick={() => setAboutOpen(true)}>About MediTwin<span aria-hidden="true">›</span></button>
               <div className="card more-settings">{techSwitch}</div>
               {user && <button className="button" onClick={onSignOut}>Sign out</button>}
             </div>}
@@ -407,6 +414,7 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
         </div>
       </div>}
 
+      {aboutOpen && <AboutPlatform personal={personalMode} name={persona?.name ?? null} onClose={() => setAboutOpen(false)} onGo={go} />}
       {drawer && <ConceptDrawer m={drawer} history={drawerHistory} onClose={() => setDrawer(null)} />}
       {tourIndex !== null && tourSteps.length > 0 && <GuidedTour steps={tourSteps} index={tourIndex} busy={tourBusy || analyzing} dockLeft={drawer !== null || panelOpen}
         onGo={(i) => void goTour(i)} onExit={() => { setTourIndex(null); setTourTarget(null); }} />}

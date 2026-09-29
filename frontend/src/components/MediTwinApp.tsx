@@ -16,7 +16,7 @@ type Screen =
   | { name: "onboarding" }
   | { name: "picker" }
   | { name: "sample"; persona: Persona; guided: boolean }
-  | { name: "mine" };
+  | { name: "mine"; welcome?: boolean };
 
 function AuthPanel({ mode, onMode, onDone, onBack }: { mode: "signin" | "signup"; onMode: (m: "signin" | "signup") => void; onDone: (u: AuthUser) => void; onBack: () => void }) {
   const [message, setMessage] = useState("");
@@ -99,7 +99,8 @@ export function MediTwinApp() {
 
   const signOut = async () => { await api.signOut(); setUser(null); setScreen({ name: "landing" }); };
   const openPicker = () => { setScreen({ name: "picker" }); if (!twins) void loadTwins(); };
-  const saveProfile = async (profile: Profile) => { await me.saveProfile(profile); setScreen({ name: "mine" }); };
+  // A new member lands on their twin with the About walkthrough open.
+  const saveProfile = async (profile: Profile) => { await me.saveProfile(profile); setScreen({ name: "mine", welcome: true }); };
 
   const personalSource = useMemo<WorkspaceSource | null>(() => (user ? { kind: "personal", user } : null), [user]);
   const sampleSource = useMemo<WorkspaceSource | null>(
@@ -116,7 +117,7 @@ export function MediTwinApp() {
     onPick={(persona, guided) => setScreen({ name: "sample", persona, guided })} />;
   if (screen.name === "sample" && sampleSource) return <Workspace key={`sample-${screen.persona.twinId}`} source={sampleSource} user={user}
     onExit={() => setScreen({ name: "picker" })} onSignOut={() => void signOut()} onAccountDeleted={() => void signOut()} />;
-  if (screen.name === "mine" && personalSource) return <Workspace key="mine" source={personalSource} user={user}
+  if (screen.name === "mine" && personalSource) return <Workspace key="mine" source={personalSource} user={user} welcome={screen.welcome}
     onExit={() => setScreen({ name: "landing" })} onSignOut={() => void signOut()}
     onAccountDeleted={() => { setUser(null); setScreen({ name: "landing" }); }} />;
   return <Landing user={user} accountsEnabled={accountsEnabled} readiness={readiness}
