@@ -87,7 +87,7 @@ export function Onboarding({ email, onSave, onSignOut }: { email: string; onSave
           <li><b>In an emergency, don&apos;t use MediTwin.</b> Call your local emergency number.</li>
           <li><b>Your digital twin.</b> MediTwin creates a personal digital twin for you on the OntoMorph platform, and the results you add are stored on it.</li>
           <li><b>What we store.</b> Your email, the profile below, the results you add and your symptom check-ins. MediTwin keeps an encrypted copy so nothing is lost if OntoMorph is briefly unavailable.</li>
-          <li><b>Who processes it.</b> Your twin lives on OntoMorph, and clinical codes are looked up in OntoMorph HOLON. To write explanations, MediTwin sends the relevant evidence, without your name or email, to an AI provider (Groq or Anthropic).</li>
+          <li><b>Who processes it.</b> Your twin lives on OntoMorph, and clinical codes are looked up in OntoMorph HOLON. To write explanations and answer your questions in the assistant, MediTwin sends the relevant parts of your record, without your name or email, to an AI provider (Groq or Anthropic). Conversations aren&apos;t stored.</li>
           <li><b>You stay in control.</b> Download everything or delete your MediTwin account at any time from Account &amp; privacy.</li>
         </ul>
         <label className="consent-check"><input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />

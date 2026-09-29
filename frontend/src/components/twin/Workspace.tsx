@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccountSettings } from "@/components/account/AccountSettings";
+import { Assistant, AssistantLauncher, type ActionHandler } from "@/components/assistant/Assistant";
 import { History } from "@/components/account/History";
 import { MyData } from "@/components/account/MyData";
 import { GuidedTour, type TourStep } from "@/components/demo/GuidedTour";
@@ -12,13 +13,17 @@ import { WhatIf } from "@/components/insights/WhatIf";
 import { SymptomCheck, type SymptomSelection } from "@/components/symptoms/SymptomCheck";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Logo, Spinner, StatusDot } from "@/components/ui/primitives";
+import { TechContext } from "@/components/ui/tech";
+import { starterPrompts } from "@/domain/assistant";
 import type { AnalysisResult, Measurement, OrganId, Persona, SimulationComparison, SimulationType, SymptomInput, TraceEntry, TwinView } from "@/domain/types";
 import { api, ApiError, me, type AuthUser } from "@/lib/api";
+import { useAssistant } from "@/lib/assistant-client";
 import { SYSTEM_STATUS_TEXT, ms } from "@/lib/format";
 import { ConceptDrawer } from "./Measurements";
+import { Home } from "./Home";
 import { Overview } from "./Overview";
 
-type View = "overview" | "timeline" | "symptoms" | "insight" | "whatif" | "summary" | "trace" | "mydata" | "history" | "account";
+type View = "home" | "ask" | "more" | "overview" | "timeline" | "symptoms" | "insight" | "whatif" | "summary" | "trace" | "mydata" | "history" | "account";
 
 export type WorkspaceSource =
   | { kind: "sample"; persona: Persona; guided: boolean }
@@ -46,6 +51,8 @@ function operationsFor(source: WorkspaceSource) {
   };
 }
 
+const TECH_KEY = "meditwin.technical-details";
+
 const LOADING_STAGES = ["Connecting to digital twin…", "Loading health information…", "Resolving clinical information…", "Preparing your health view…"];
 const DEMO_SYMPTOMS: SymptomSelection = {
   increased_thirst: { id: "increased_thirst", severity: "moderate", durationDays: 14 },
@@ -72,7 +79,7 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
   const personalMode = source.kind === "personal";
   const guided = source.kind === "sample" && source.guided;
   const ops = useMemo(() => operationsFor(source), [source]);
-  const [view, setView] = useState<View>("overview");
+  const [view, setView] = useState<View>("home");
   const [twin, setTwin] = useState<TwinView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,6 +97,23 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
   const [tourBusy, setTourBusy] = useState(false);
   const [tourTarget, setTourTarget] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [tech, setTech] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { try { setTech(window.localStorage.getItem(TECH_KEY) === "1"); } catch { /* storage unavailable */ } }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+  const toggleTech = () => setTech((on) => {
+    try { window.localStorage.setItem(TECH_KEY, on ? "0" : "1"); } catch { /* storage unavailable */ }
+    return !on;
+  });
+
+  // ---- Assistant ------------------------------------------------------------------------------
+  const endpoint = source.kind === "personal" ? "/api/me/assistant" : `/api/twins/${source.persona.twinId}/assistant`;
+  const focus = useMemo(() => analysis?.symptoms.map(({ id, severity, durationDays, userWording }) => ({ id, severity, durationDays, userWording })) ?? null, [analysis]);
+  const chat = useAssistant(endpoint, focus);
+  const starters = useMemo(() => starterPrompts(twin), [twin]);
 
   // Fetches the twin; callers set loading flags first so no state changes synchronously in an effect.
   const load = useCallback(async (fresh = false) => {
@@ -120,7 +144,19 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
     return () => clearInterval(timer);
   }, [loading]);
 
-  const go = (next: View) => { setView(next); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const go = (next: View) => { setView(next); setPanelOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
+
+  /** Open the assistant (as a panel unless its page is showing), optionally asking something. */
+  const ask = (text?: string) => {
+    if (view !== "ask") setPanelOpen(true);
+    if (text?.trim()) void chat.send(text);
+  };
+  useEffect(() => {
+    if (!panelOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPanelOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panelOpen]);
 
   const analyze = useCallback(async (chosen: SymptomSelection) => {
     setAnalyzing(true); setAnalysisError(null); setFlag({ status: "idle" });
@@ -161,6 +197,8 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
     : [], [drawer, twin]);
 
   // ---- Guided demo (PRD §43), narrated from the live twin data --------------------------------------
+  const chatStarted = chat.items.length > 0;
+  const send = chat.send;
   const tourSteps = useMemo<TourStep[]>(() => {
     if (!twin) return [];
     const main = twin.systems[0];
@@ -170,21 +208,23 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
     const range = key?.reference ? `${key.reference.low}–${key.reference.high} ${key.reference.unit}` : "";
     return [
       { title: `Meet ${twin.persona.name}`, body: `${twin.persona.name} is a synthetic patient whose OntoMorph digital twin is connected to MediTwin. The ${twin.events.length} events you see were just retrieved live from the DTP sandbox.`,
-        run: () => { go("overview"); setTourTarget(null); } },
+        run: () => { setTech(true); go("overview"); setTourTarget(null); } },
       { title: `${main?.label ?? "Metabolic"} system`, body: key ? `${main?.label} shows ${SYSTEM_STATUS_TEXT[main.status].toLowerCase()}. ${key.label} is ${key.value} ${key.unit}, above the reference range HOLON returned (${range}). The related anatomy lights up on the twin.` : "The body systems in this twin, with their current status.",
         run: () => { go("overview"); if (main) setSystemId(main.id); setOrgan(null); setTourTarget(main ? `system:${main.id}` : null); } },
       { title: "Clinical information from HOLON", body: "Selecting a measurement shows how the raw record was resolved: the LOINC code, the HOLON concept, the reference range and its publisher. The codes stay behind the scenes.",
         run: () => { go("overview"); setTourTarget("measurement"); if (key) setDrawer(key); } },
-      { title: "Structured symptom check", body: "No empty chat box. The person picks symptoms from a structured list. We'll add increased thirst, frequent urination and fatigue, which become SNOMED CT and HPO concepts through HOLON.",
+      { title: "Structured symptom check", body: "Symptoms are picked from a reviewed list (or typed in plain words and matched to it), so the rules get exact concepts. We'll add increased thirst, frequent urination and fatigue, which become SNOMED CT and HPO concepts through HOLON.",
         run: () => { setDrawer(null); setSelection(DEMO_SYMPTOMS); go("symptoms"); setTourTarget("symptoms"); } },
       { title: "Twin data + new symptoms → signal", body: "MediTwin combines the existing twin data with the new symptoms using named, tested rules. The AI doesn't decide anything here.",
         run: async () => { setDrawer(null); setSelection(DEMO_SYMPTOMS); setTourTarget("signal"); await analyze(DEMO_SYMPTOMS); } },
       { title: "Explore affected anatomy", body: "The signal maps to body structures through FMA concepts verified in HOLON. Select an organ to see why it's relevant.",
         run: () => { setView("insight"); setTourTarget(null); document.getElementById("insight-anatomy")?.scrollIntoView({ behavior: "smooth", block: "center" }); } },
       { title: "Explanation and next step", body: "Every sentence cites its evidence and passes a safety check. The care guidance comes from reviewed content, not the model. This isn't a diagnosis: MediTwin helps you understand your information and when to speak to a healthcare professional.",
-        run: () => { setView("insight"); setTourTarget("explanation"); document.getElementById("explanation")?.scrollIntoView({ behavior: "smooth", block: "start" }); } },
+        run: () => { setPanelOpen(false); setView("insight"); setTourTarget("explanation"); document.getElementById("explanation")?.scrollIntoView({ behavior: "smooth", block: "start" }); } },
+      { title: "Ask the twin anything", body: "The assistant answers follow-up questions in English, Pidgin, Yoruba, Hausa or Igbo, grounded in this twin. Emergencies bypass the AI, every sentence is safety-checked before it appears, and actions like starting a check-in only happen when you tap them.",
+        run: () => { setTourTarget(null); setPanelOpen(true); if (!chatStarted) void send("What should I ask my doctor at my next visit?"); } },
     ];
-  }, [twin, analyze]);
+  }, [twin, analyze, chatStarted, send]);
 
   const goTour = async (index: number) => {
     setTourIndex(index);
@@ -200,96 +240,176 @@ export function Workspace({ source, user, onExit, onSignOut, onAccountDeleted }:
   const persona = twin?.persona ?? (source.kind === "sample" ? source.persona : null);
   const name = persona?.name ?? "Your";
   const personal = twin?.personal;
-  const empty = Boolean(twin && twin.events.length === 0);
-  const nav: { id: View; label: string; disabled?: boolean }[] = [
-    { id: "overview", label: "Overview" },
-    ...(personalMode ? [{ id: "mydata" as View, label: "My data" }] : []),
-    { id: "timeline", label: "Health timeline" },
-    { id: "symptoms", label: "Symptom check" },
-    { id: "insight", label: "Health context", disabled: !analysis },
-    ...(personalMode ? [{ id: "history" as View, label: "Symptom history" }] : []),
-    { id: "whatif", label: "What-if", disabled: !twin?.simulations.length },
-    { id: "summary", label: "Visit summary" },
-    { id: "trace", label: "Integration trace" },
-    ...(personalMode ? [{ id: "account" as View, label: "Account & privacy" }] : []),
+
+  const onAction: ActionHandler = async (action) => {
+    if (action.kind === "symptom_check") {
+      const next: SymptomSelection = { ...selection };
+      for (const s of action.symptoms) next[s.id] = { id: s.id, severity: next[s.id]?.severity ?? "moderate", durationDays: next[s.id]?.durationDays ?? 7, userWording: s.quote };
+      setSelection(next);
+      go("symptoms");
+      return;
+    }
+    if (action.kind === "log_result") {
+      if (!personalMode) throw new Error("Sample twins can't be changed.");
+      const result = await me.addEntry({ typeId: action.typeId, values: action.values, unit: action.unit, occurredAt: new Date().toISOString() });
+      refresh();
+      return result.message;
+    }
+    go(action.view);
+  };
+
+  const quickCheck = (ids: string[]) => {
+    const next: SymptomSelection = {};
+    for (const id of ids) next[id] = selection[id] ?? { id, severity: "moderate", durationDays: 7 };
+    setSelection(next);
+    go("symptoms");
+  };
+
+  type NavItem = { id: View; label: string; hint?: string };
+  const primary: NavItem[] = [
+    { id: "home", label: "Home" },
+    { id: "ask", label: "Ask MediTwin", hint: "AI" },
+    { id: "symptoms", label: "Check-in" },
+    { id: "overview", label: "Body & results" },
+    { id: "timeline", label: "Timeline" },
   ];
+  const records: NavItem[] = [
+    ...(analysis ? [{ id: "insight" as View, label: "Latest check-in result" }] : []),
+    ...(personalMode ? [{ id: "mydata" as View, label: "My results" }, { id: "history" as View, label: "Check-in history" }] : []),
+    { id: "summary", label: "Visit summary" },
+    ...(twin?.simulations.length ? [{ id: "whatif" as View, label: "What-if projection" }] : []),
+  ];
+  const settings: NavItem[] = [
+    ...(personalMode ? [{ id: "account" as View, label: "Account & privacy" }] : []),
+    ...(tech ? [{ id: "trace" as View, label: "Integration trace" }] : []),
+  ];
+  const all = [...primary, ...records, ...settings];
+  const title = view === "more" ? "More" : view === "insight" ? "Your health context" : all.find((n) => n.id === view)?.label ?? "";
+  const navButton = (n: NavItem) => <button key={n.id} className={view === n.id ? "active" : ""} onClick={() => go(n.id)}>
+    {n.label}{n.hint && <span className="nav-hint">{n.hint}</span>}
+  </button>;
+  const techSwitch = <label className="switch">
+    <input type="checkbox" checked={tech} onChange={toggleTech} />
+    <span className="switch-track" aria-hidden="true" />
+    <span>Show technical details<small>Clinical codes, rules and API calls</small></span>
+  </label>;
+  const bottom: { id: View; label: string; icon: string }[] = [
+    { id: "home", label: "Home", icon: "M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" },
+    { id: "ask", label: "Ask", icon: "M12 2.5l1.9 5.1 5.1 1.9-5.1 1.9L12 16.5l-1.9-5.1L5 9.5l5.1-1.9zM18.5 14.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" },
+    { id: "symptoms", label: "Check-in", icon: "M9 3h6v2h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3zm0 9 2 2 4-4-1.4-1.4L11 11.2l-.6-.6z" },
+    { id: "overview", label: "Results", icon: "M4 20V10h3v10zm6.5 0V4h3v16zM17 20v-7h3v7z" },
+    { id: "more", label: "More", icon: "M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" },
+  ];
+  const moreActive = view === "more" || records.concat(settings).some((n) => n.id === view);
+  const chatProps = { chat, name: persona?.name ?? null, starters, onAction, sample: !personalMode };
 
-  return <div className="app">
-    <header className="topbar">
-      <button className="link-button" onClick={onExit} aria-label="Back to start"><Logo /></button>
-      {personalMode
-        ? <span className="chip chip-private"><i /> Your private health twin · encrypted</span>
-        : <span className="chip chip-demo"><i /> Sample twin · synthetic data</span>}
-      <span className="topbar-note">Not a diagnosis</span>
-      <div className="topbar-right">
-        {!personalMode && tourIndex === null && twin && <button className="button button-small" onClick={() => void goTour(0)}>Guided demo</button>}
-        {user && <button className="link-button small" onClick={onSignOut} title="Sign out">{user.email} · Sign out</button>}
-      </div>
-    </header>
-
-    <div className="workspace">
-      <aside className="sidebar">
-        {persona && <div className="patient">
-          <div className="twin-avatar">{persona.name[0]}</div>
-          <div><b>{persona.name}</b><span>{persona.age} years · {persona.sex}</span></div>
-        </div>}
+  return <TechContext.Provider value={tech}>
+    <div className="app">
+      <header className="topbar">
+        <button className="link-button" onClick={onExit} aria-label="Back to start"><Logo /></button>
         {personalMode
-          ? <span className="synthetic-tag">{personal?.connection.connected ? (personal.connection.status === "ok" ? "OntoMorph twin active" : "OntoMorph twin syncing") : "Creating your OntoMorph twin…"} · {personal?.entries.length ?? 0} results</span>
-          : <span className="synthetic-tag">Synthetic sample patient · OntoMorph sandbox twin</span>}
-        <nav className="side-nav" aria-label="Workspace">
-          {nav.map((n) => <button key={n.id} className={view === n.id ? "active" : ""} disabled={n.disabled} onClick={() => go(n.id)}>{n.label}</button>)}
-        </nav>
-        {twin && <div className="side-systems">
-          <span className="eyebrow">Health systems</span>
-          {twin.systems.map((s) => <button key={s.id} className={s.id === systemId && view === "overview" ? "active" : ""} onClick={() => { setSystemId(s.id); setOrgan(null); go("overview"); }}>
-            <StatusDot status={s.status} /><span>{s.label}</span><small>{SYSTEM_STATUS_TEXT[s.status]}</small>
-          </button>)}
-        </div>}
-        {twin && <p className="side-fresh">Updated {new Date(twin.fetchedAt).toLocaleTimeString()}{twin.grant.expiresAt ? ` · grant valid until ${new Date(twin.grant.expiresAt).toLocaleDateString("en-GB")}` : ""}</p>}
-      </aside>
-
-      <main className="main">
-        <div className="main-head">
-          <div><span className="eyebrow">{personalMode ? "Your health context" : `${name}'s health context`}</span><h1>{nav.find((n) => n.id === view)?.label}</h1></div>
-          <div className="load-line" role="status">
-            {loading ? <Spinner label={LOADING_STAGES[stage]} />
-              : loadError ? <span className="error-text">{loadError} <button className="link-button" onClick={retry}>Try again</button></span>
-              : trace.entries.length ? <span className="ok-line"><StatusDot status="CLEAR" /> {summarizeTrace(trace.entries)} <button className="link-button" onClick={() => go("trace")}>View trace</button></span> : null}
-          </div>
+          ? <span className="chip chip-private"><i /> Private · encrypted</span>
+          : <span className="chip chip-demo"><i /> Sample twin · synthetic data</span>}
+        <span className="topbar-note">Not a diagnosis</span>
+        <div className="topbar-right">
+          {!personalMode && tourIndex === null && twin && <button className="button button-small" onClick={() => void goTour(0)}>Guided demo</button>}
+          {user && <button className="link-button small topbar-user" onClick={onSignOut} title="Sign out">{user.email} · Sign out</button>}
         </div>
+      </header>
 
-        {loading && <ol className="loading-stages">{LOADING_STAGES.map((s, i) => <li key={s} className={i < stage ? "done" : i === stage ? "active" : ""}>{s}</li>)}</ol>}
-        {!loading && !twin && loadError && <div className="notice notice-error"><b>We couldn&apos;t load your health information.</b><span>MediTwin won&apos;t show substitute data. Please try again in a moment.</span><button className="button" onClick={retry}>Try again</button></div>}
+      <div className="workspace">
+        <aside className="sidebar">
+          {persona && <div className="patient">
+            <div className="twin-avatar">{persona.name[0]}</div>
+            <div><b>{persona.name}</b><span>{persona.age} years · {persona.sex}</span></div>
+          </div>}
+          <span className="synthetic-tag">{personalMode
+            ? <><StatusDot status={personal?.connection.connected && personal.connection.status === "ok" ? "CLEAR" : "ATTENTION"} /> {personal?.connection.connected ? (personal.connection.status === "ok" ? "Twin live on OntoMorph" : "Twin syncing") : "Creating your twin…"}</>
+            : "Synthetic sample patient · OntoMorph sandbox"}</span>
+          <nav className="side-nav" aria-label="Workspace">
+            {primary.map(navButton)}
+            <span className="side-label">Your records</span>
+            {records.map(navButton)}
+            {settings.length > 0 && <span className="side-label">Settings</span>}
+            {settings.map(navButton)}
+          </nav>
+          {twin && twin.systems.length > 0 && <div className="side-systems">
+            <span className="eyebrow">Body systems</span>
+            {twin.systems.map((s) => <button key={s.id} className={s.id === systemId && view === "overview" ? "active" : ""} onClick={() => { setSystemId(s.id); setOrgan(null); go("overview"); }}>
+              <StatusDot status={s.status} /><span>{s.label}</span><small>{SYSTEM_STATUS_TEXT[s.status]}</small>
+            </button>)}
+          </div>}
+          <div className="side-foot">
+            {techSwitch}
+            {twin && <p className="side-fresh">Updated {new Date(twin.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{tech && twin.grant.expiresAt ? ` · grant valid until ${new Date(twin.grant.expiresAt).toLocaleDateString("en-GB")}` : ""}</p>}
+          </div>
+        </aside>
 
-        {twin && <>
-          {view === "overview" && empty && <section className="card welcome">
-            <span className="eyebrow">Welcome{persona ? `, ${persona.name}` : ""}</span>
-            <h2>Let&apos;s build your health twin</h2>
-            <p className="muted">Your OntoMorph twin has been created. Add a result or check how you feel to get started.</p>
-            <div className="welcome-options">
-              <button className="welcome-option" onClick={() => go("mydata")}><b>Add a result yourself</b><span>HbA1c, glucose, blood pressure, cholesterol and more, from a lab report or home device.</span></button>
-              <button className="welcome-option" onClick={() => go("symptoms")}><b>Check how you feel</b><span>Record symptoms now. They&apos;ll be compared with results as you add them.</span></button>
+        <main className={`main main-${view}`}>
+          {(view !== "home" || loading || loadError) && <div className="main-head">
+            <div><span className="eyebrow">{personalMode ? "Your health twin" : `${name}'s health twin`}</span>{view !== "home" && <h1>{title}</h1>}</div>
+            <div className="load-line" role="status">
+              {loading ? <Spinner label={LOADING_STAGES[stage]} />
+                : loadError ? <span className="error-text">{loadError} <button className="link-button" onClick={retry}>Try again</button></span>
+                : tech && trace.entries.length ? <span className="ok-line"><StatusDot status="CLEAR" /> {summarizeTrace(trace.entries)} <button className="link-button" onClick={() => go("trace")}>View trace</button></span>
+                : twin ? <span className="ok-line"><StatusDot status="CLEAR" /> Up to date <button className="link-button" onClick={refresh} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh"}</button></span> : null}
             </div>
-          </section>}
-          {view === "overview" && !empty && <Overview twin={twin} systemId={systemId} onSelectSystem={setSystemId} selectedOrgan={organ} onSelectOrgan={setOrgan}
-            onOpenMeasurement={setDrawer} onCheckSymptoms={() => go("symptoms")} tourTarget={tourTarget} />}
-          {view === "timeline" && <Timeline twin={twin} onOpenMeasurement={setDrawer} onRefresh={refresh} refreshing={refreshing} />}
-          {view === "symptoms" && <SymptomCheck name={personalMode ? "you" : name} selection={selection} onChange={setSelection} onAnalyze={() => void analyze(selection)}
-            analyzing={analyzing} error={analysisError} tourHighlight={tourTarget === "symptoms"} />}
-          {view === "insight" && analysis && <Insight result={analysis} name={personalMode ? "your" : `${name}'s`} canFlag={!personalMode || personal?.connection.status === "ok"} onEditSymptoms={() => go("symptoms")} onSummary={() => go("summary")}
-            onWhatIf={() => go("whatif")} canSimulate={twin.simulations.length > 0} onFlag={() => void saveFlag()} flag={flag} tourTarget={tourTarget} />}
-          {view === "whatif" && <WhatIf run={ops.simulate} types={twin.simulations} onTrace={(entries) => setTrace({ title: "What-if simulation", entries })} />}
-          {view === "summary" && <VisitSummary twin={twin} analysis={analysis} />}
-          {view === "trace" && <TraceView entries={trace.entries} title={trace.title} />}
-          {view === "mydata" && personal && <MyData personal={personal} onChanged={refresh} />}
-          {view === "history" && personal && <History checkins={personal.checkins} onNewCheckin={() => go("symptoms")} />}
-          {view === "account" && personal && <AccountSettings personal={personal} onChanged={refresh} onDeleted={onAccountDeleted} />}
-        </>}
-      </main>
-    </div>
+          </div>}
 
-    {drawer && <ConceptDrawer m={drawer} history={drawerHistory} onClose={() => setDrawer(null)} />}
-    {tourIndex !== null && tourSteps.length > 0 && <GuidedTour steps={tourSteps} index={tourIndex} busy={tourBusy || analyzing} dockLeft={drawer !== null}
-      onGo={(i) => void goTour(i)} onExit={() => { setTourIndex(null); setTourTarget(null); }} />}
-  </div>;
+          {loading && <ol className="loading-stages">{LOADING_STAGES.map((s, i) => <li key={s} className={i < stage ? "done" : i === stage ? "active" : ""}>{s}</li>)}</ol>}
+          {!loading && !twin && loadError && <div className="notice notice-error"><b>We couldn&apos;t load your health information.</b><span>MediTwin won&apos;t show substitute data. Please try again in a moment.</span><button className="button" onClick={retry}>Try again</button></div>}
+
+          {twin && <>
+            {view === "home" && <Home twin={twin} personal={personalMode} starters={starters} onAsk={ask} onGo={go}
+              onOpenMeasurement={setDrawer} onSelectSystem={(id) => { setSystemId(id); setOrgan(null); go("overview"); }} onQuickCheck={quickCheck} />}
+            {view === "ask" && <Assistant {...chatProps} variant="page" />}
+            {view === "more" && <div className="more-list">
+              {[...primary, ...records, ...settings].filter((n) => !bottom.some((b) => b.id === n.id)).map((n) =>
+                <button key={n.id} className="more-item" onClick={() => go(n.id)}>{n.label}<span aria-hidden="true">›</span></button>)}
+              <div className="card more-settings">{techSwitch}</div>
+              {user && <button className="button" onClick={onSignOut}>Sign out</button>}
+            </div>}
+            {view === "overview" && twin.events.length === 0 && <section className="card welcome">
+              <span className="eyebrow">Nothing here yet</span>
+              <h2>Your results will appear here</h2>
+              <p className="muted">Add a result from a lab report or home device, and MediTwin checks it against its clinical reference range.</p>
+              <div className="row-actions">{personalMode && <button className="button button-primary" onClick={() => go("mydata")}>Add a result</button>}
+                <button className="button" onClick={() => ask()}>Ask the assistant</button></div>
+            </section>}
+            {view === "overview" && twin.events.length > 0 && <Overview twin={twin} systemId={systemId} onSelectSystem={setSystemId} selectedOrgan={organ} onSelectOrgan={setOrgan}
+              onOpenMeasurement={setDrawer} onCheckSymptoms={() => go("symptoms")} tourTarget={tourTarget} />}
+            {view === "timeline" && <Timeline twin={twin} onOpenMeasurement={setDrawer} onRefresh={refresh} refreshing={refreshing} />}
+            {view === "symptoms" && <SymptomCheck name={personalMode ? "you" : name} selection={selection} onChange={setSelection} onAnalyze={() => void analyze(selection)}
+              analyzing={analyzing} error={analysisError} tourHighlight={tourTarget === "symptoms"} />}
+            {view === "insight" && analysis && <Insight result={analysis} name={personalMode ? "your" : `${name}'s`} canFlag={!personalMode || personal?.connection.status === "ok"} onEditSymptoms={() => go("symptoms")} onSummary={() => go("summary")}
+              onWhatIf={() => go("whatif")} canSimulate={twin.simulations.length > 0} onFlag={() => void saveFlag()} flag={flag} tourTarget={tourTarget}
+              onAsk={() => ask(analysis.primary ? "Can you explain my check-in result in simple words, and what I could do next?" : "Nothing linked my symptoms to my results. What else could I keep an eye on?")} />}
+            {view === "whatif" && <WhatIf run={ops.simulate} types={twin.simulations} onTrace={(entries) => setTrace({ title: "What-if simulation", entries })} />}
+            {view === "summary" && <VisitSummary twin={twin} analysis={analysis} />}
+            {view === "trace" && <TraceView entries={trace.entries} title={trace.title} />}
+            {view === "mydata" && personal && <MyData personal={personal} onChanged={refresh} />}
+            {view === "history" && personal && <History checkins={personal.checkins} onNewCheckin={() => go("symptoms")} />}
+            {view === "account" && personal && <AccountSettings personal={personal} onChanged={refresh} onDeleted={onAccountDeleted} />}
+          </>}
+        </main>
+      </div>
+
+      <nav className="bottom-nav" aria-label="Main">
+        {bottom.map((b) => <button key={b.id} className={(b.id === "more" ? moreActive : view === b.id) ? "active" : ""} onClick={() => go(b.id)}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d={b.icon} fill="currentColor" /></svg>{b.label}
+        </button>)}
+      </nav>
+
+      {twin && view !== "ask" && !panelOpen && tourIndex === null && <AssistantLauncher onOpen={() => ask()} />}
+      {panelOpen && view !== "ask" && <div className="chat-panel-backdrop" onClick={() => setPanelOpen(false)}>
+        <div className="chat-panel-frame" onClick={(e) => e.stopPropagation()}>
+          <Assistant {...chatProps} variant="panel" onClose={() => setPanelOpen(false)} onExpand={() => go("ask")} />
+        </div>
+      </div>}
+
+      {drawer && <ConceptDrawer m={drawer} history={drawerHistory} onClose={() => setDrawer(null)} />}
+      {tourIndex !== null && tourSteps.length > 0 && <GuidedTour steps={tourSteps} index={tourIndex} busy={tourBusy || analyzing} dockLeft={drawer !== null || panelOpen}
+        onGo={(i) => void goTour(i)} onExit={() => { setTourIndex(null); setTourTarget(null); }} />}
+    </div>
+  </TechContext.Provider>;
 }

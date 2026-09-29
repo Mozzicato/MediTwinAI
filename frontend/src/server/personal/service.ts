@@ -105,8 +105,26 @@ async function loadPersonal(trace: Trace, user: SessionUser): Promise<{ view: Tw
   return { view: { ...view, personal }, twinId: twin?.twinId ?? null, twinReady };
 }
 
+// The assistant asks for the view on every message; a short cache keeps answers fast. Every write
+// below clears it, so the assistant never talks about stale results.
+const VIEW_CACHE_MS = 2 * 60_000;
+const viewCache = new Map<string, { expires: number; view: TwinView }>();
+const invalidate = (user: SessionUser) => viewCache.delete(user.id);
+
 export async function personalView(trace: Trace, user: SessionUser): Promise<TwinView> {
-  return (await loadPersonal(trace, user)).view;
+  const view = (await loadPersonal(trace, user)).view;
+  viewCache.set(user.id, { expires: Date.now() + VIEW_CACHE_MS, view });
+  return view;
+}
+
+/** The person's view, from the short cache when fresh. */
+export async function cachedPersonalView(trace: Trace, user: SessionUser): Promise<TwinView> {
+  const hit = viewCache.get(user.id);
+  if (hit && hit.expires > Date.now()) {
+    trace.record({ service: "DTP", operation: "personal twin view", status: "cached", ms: 0, detail: `${hit.view.events.length} events` });
+    return hit.view;
+  }
+  return personalView(trace, user);
 }
 
 export async function getOnboarding(user: SessionUser) {
@@ -121,6 +139,7 @@ export async function saveProfile(trace: Trace, user: SessionUser, profile: Prof
   if (profile.heightCm < 50 || profile.heightCm > 250) throw new HttpError(400, "Enter your height in centimetres (for example 172).");
   if (profile.weightKg < 20 || profile.weightKg > 350) throw new HttpError(400, "Enter your weight in kilograms (for example 70).");
   const clean = { ...profile, firstName: profile.firstName.trim() };
+  invalidate(user);
   const existing = await store.getPlatformTwin(user.id);
   await store.saveProfile(user.id, clean);
   if (existing) {
@@ -140,6 +159,7 @@ export async function addEntry(trace: Trace, user: SessionUser, input: { typeId:
   const occurred = new Date(input.occurredAt);
   if (Number.isNaN(occurred.getTime()) || occurred.getTime() > Date.now() + 86_400_000 || occurred.getUTCFullYear() < 1900) throw new HttpError(400, "Choose a valid date that isn't in the future.");
 
+  invalidate(user);
   const entry = await store.addEntry(user.id, { typeId: type.id, values: input.values, unit: input.unit, note: input.note?.trim() || undefined, occurredAt: occurred.toISOString() });
   const twin = await store.getPlatformTwin(user.id);
   if (!twin) return { entry, synced: false, message: "Saved. It will sync to your OntoMorph twin once it's created." };
@@ -153,6 +173,7 @@ export async function addEntry(trace: Trace, user: SessionUser, input: { typeId:
 }
 
 export async function deleteEntry(user: SessionUser, id: string) {
+  invalidate(user);
   if (!(await store.deleteEntry(user.id, id))) throw new HttpError(404, "That result wasn't found.");
 }
 
@@ -162,6 +183,7 @@ export async function analyzePersonal(trace: Trace, user: SessionUser, symptoms:
   const { view } = await loadPersonal(trace, user);
   const result = await analyzeView(trace, view, symptoms);
   if (symptoms.length) {
+    invalidate(user);
     await store.addCheckin(user.id, {
       symptoms,
       signal: result.primary ? { type: result.primary.type, systemLabel: result.primary.systemLabel, ruleId: result.primary.ruleId, title: result.primary.title } : null,
@@ -176,9 +198,9 @@ export async function flagPersonal(trace: Trace, user: SessionUser, symptoms: Sy
   if (!twinId || !twinReady) throw new HttpError(503, UNAVAILABLE.replace("Your results are saved securely in MediTwin and will sync automatically.", "Please try again later."));
   const result = await writeSignal(trace, view, (system, flag) =>
     writeOwnedEvent(trace, twinId, { eventType: "clinical_note", occurredAt: new Date().toISOString(), title: flag.title, description: flag.description, data: { ...flag.data, system } }), symptoms);
-  if (result.status === "created") await store.audit(user.id, "twin.flag_written");
+  if (result.status === "created") { invalidate(user); await store.audit(user.id, "twin.flag_written"); }
   return result;
 }
 
 export const exportData = (user: SessionUser) => store.exportAll(user.id, user.email);
-export const deleteAccount = (user: SessionUser) => store.deleteAccount(user.id);
+export const deleteAccount = (user: SessionUser) => { invalidate(user); return store.deleteAccount(user.id); };

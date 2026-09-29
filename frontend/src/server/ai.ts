@@ -97,6 +97,97 @@ async function generateWithGroq<T>(trace: Trace, operation: string, schema: z.Zo
   return parsed.success ? { ok: true, data: parsed.data, model: response.model } : { ok: false, reason: "The AI's answer did not match the expected format" };
 }
 
+// ---- Streaming chat (assistant) -----------------------------------------------------------------
+
+export type ChatMessage = { role: "user" | "assistant"; content: string };
+export type ChatStreamResult = { model: string; stopReason: "end" | "length" | "refusal" };
+
+const CHAT_TIMEOUT_MS = 45_000;
+
+/**
+ * Stream a chat answer as plain text deltas. Throws if the provider can't be reached; the caller
+ * decides what the person sees. Records one trace entry when the stream ends.
+ */
+export async function* streamChat(trace: Trace, system: string, messages: ChatMessage[], signal: AbortSignal): AsyncGenerator<string, ChatStreamResult> {
+  const started = performance.now();
+  const combined = AbortSignal.any([signal, AbortSignal.timeout(CHAT_TIMEOUT_MS)]);
+  let result: ChatStreamResult | null = null;
+  try {
+    result = config.llm.provider === "claude" && anthropic
+      ? yield* streamClaude(system, messages, combined)
+      : yield* streamGroq(system, messages, combined);
+    return result;
+  } finally {
+    trace.record({ service: "AI", operation: "assistant answer", status: result && result.stopReason !== "refusal" ? "ok" : "error", ms: Math.round(performance.now() - started),
+      detail: result ? `${result.model}${config.llm.provider === "groq" ? " via Groq" : ""}, ${result.stopReason}` : "stream did not complete" });
+  }
+}
+
+async function* streamClaude(system: string, messages: ChatMessage[], signal: AbortSignal): AsyncGenerator<string, ChatStreamResult> {
+  const stream = anthropic!.beta.messages.stream({
+    model: config.llm.model,
+    max_tokens: 8000,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    thinking: { type: "adaptive" },
+    output_config: { effort: "low" },
+    system,
+    messages,
+  }, { signal });
+  for await (const event of stream) {
+    if (event.type === "content_block_delta" && event.delta.type === "text_delta") yield event.delta.text;
+  }
+  const final = await stream.finalMessage();
+  return { model: final.model, stopReason: final.stop_reason === "refusal" ? "refusal" : final.stop_reason === "max_tokens" ? "length" : "end" };
+}
+
+interface GroqChunk {
+  model?: string;
+  choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[];
+}
+
+async function* streamGroq(system: string, messages: ChatMessage[], signal: AbortSignal): AsyncGenerator<string, ChatStreamResult> {
+  if (config.llm.provider !== "groq") throw new Error("No AI provider is configured on this deployment");
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.llm.groqKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: config.llm.model,
+      stream: true,
+      max_completion_tokens: 3000,
+      reasoning_effort: "low",
+      messages: [{ role: "system", content: system }, ...messages],
+    }),
+    signal,
+    cache: "no-store",
+  });
+  if (!res.ok || !res.body) throw new Error(`Groq ${res.status}`);
+
+  let model = config.llm.model;
+  let finish: string | null = null;
+  let pending = "";
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    pending += value;
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") continue;
+      let chunk: GroqChunk;
+      try { chunk = JSON.parse(data) as GroqChunk; } catch { continue; }
+      if (chunk.model) model = chunk.model;
+      const choice = chunk.choices?.[0];
+      if (choice?.finish_reason) finish = choice.finish_reason;
+      if (choice?.delta?.content) yield choice.delta.content;
+    }
+  }
+  return { model, stopReason: finish === "length" ? "length" : "end" };
+}
+
 // ---- Explanations -------------------------------------------------------------------------------
 
 const EXPLANATION_SYSTEM = `You write plain-language health explanations for MediTwin, a health-context app for people without medical training.

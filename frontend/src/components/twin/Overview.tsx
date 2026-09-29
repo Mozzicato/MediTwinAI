@@ -2,6 +2,7 @@
 
 import { BodyViewer } from "@/components/anatomy/BodyViewer";
 import { StatusDot, SystemStatusPill } from "@/components/ui/primitives";
+import { useTech } from "@/components/ui/tech";
 import type { Measurement, OrganId, SignalType, TwinView } from "@/domain/types";
 import { MeasurementRow, seriesFor } from "./Measurements";
 
@@ -21,6 +22,7 @@ export function Overview({ twin, systemId, onSelectSystem, selectedOrgan, onSele
   const signal = twin.baselineSignals.find((s) => s.system === system?.id);
   const level: SignalType | null = system && ["URGENT", "ATTENTION", "INFORMATION"].includes(system.status) ? system.status as SignalType : null;
   const organ = system?.anatomy.find((o) => o.organ === selectedOrgan);
+  const tech = useTech();
   const firstOut = series.find((s) => s.latest.status === "ABOVE" || s.latest.status === "BELOW");
 
   if (!system) return <div className="empty">This twin has no health events yet.</div>;
@@ -45,7 +47,7 @@ export function Overview({ twin, systemId, onSelectSystem, selectedOrgan, onSele
           ? <ul className="organ-list">
             {system.anatomy.map((o) => <li key={o.organ}>
               <button className={o.organ === selectedOrgan ? "active" : ""} onClick={() => onSelectOrgan(o.organ === selectedOrgan ? null : o.organ)}>
-                <b>{o.label}</b><span>FMA {o.fma} · {o.verified ? `verified as “${o.holonName}”` : "not verified. Hidden"}</span>
+                <b>{o.label}</b><span>{tech ? `FMA ${o.fma} · ${o.verified ? `verified as “${o.holonName}”` : "not verified. Hidden"}` : o.rationale}</span>
               </button>
             </li>)}
           </ul>
@@ -66,7 +68,7 @@ export function Overview({ twin, systemId, onSelectSystem, selectedOrgan, onSele
               <b>{signal.type === "ATTENTION" ? "1 attention signal" : "Results outside reference range"}</b>
               <p>{signal.type === "ATTENTION"
                 ? `A measurement is outside its reference range, and your twin recently recorded a related symptom.`
-                : `Some results are outside the reference ranges HOLON provides. No related symptoms are on record.`}</p>
+                : `Some results are outside their reference ranges. No related symptoms are on record.`}</p>
             </div>
             <button className="button button-small" onClick={onCheckSymptoms}>Check symptoms</button>
           </div>
@@ -78,7 +80,7 @@ export function Overview({ twin, systemId, onSelectSystem, selectedOrgan, onSele
               highlight={tourTarget === "measurement" && s === firstOut} />)}
           </div>
           : <p className="muted">No numeric measurements in this system. See the timeline for other records.</p>}
-        <p className="fine">Reference ranges are retrieved live from HOLON for each LOINC code. Select a measurement to see how it was resolved.</p>
+        <p className="fine">{tech ? "Reference ranges are retrieved live from HOLON for each LOINC code. Select a measurement to see how it was resolved." : "Tap a result to see its history and where its reference range comes from."}</p>
       </section>
     </div>
 
@@ -87,11 +89,11 @@ export function Overview({ twin, systemId, onSelectSystem, selectedOrgan, onSele
       {twin.medications.length === 0 ? <p className="muted">No medicines are recorded in this twin.</p> : <ul className="med-list">
         {twin.medications.map((m) => <li key={m.eventId}>
           <b>{m.label}</b>
-          <span>{m.holonName ? <>RxNorm {m.rxnorm} → HOLON: “{m.holonName}”</> : m.rxnorm ? `RxNorm ${m.rxnorm}, not found in HOLON` : "No RxNorm code on record"}</span>
+          {tech && <span>{m.holonName ? <>RxNorm {m.rxnorm} → HOLON: “{m.holonName}”</> : m.rxnorm ? `RxNorm ${m.rxnorm}, not found in HOLON` : "No RxNorm code on record"}</span>}
           {m.labelCodeMismatch && <em>The recorded dose differs from the strength of the coded product. That can be normal (for example, two tablets), but it&apos;s worth confirming your medicine list with your pharmacist.</em>}
         </li>)}
       </ul>}
-      <p className="fine">{twin.interactions.checked ? `HOLON interaction screen across ${twin.interactions.drugCount} medicines: ` : ""}{twin.interactions.note}</p>
+      <p className="fine">{twin.interactions.checked && tech ? `HOLON interaction screen across ${twin.interactions.drugCount} medicines: ` : ""}{twin.interactions.note}</p>
     </section>
   </div>;
 }

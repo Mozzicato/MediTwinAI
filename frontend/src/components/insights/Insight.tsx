@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { BodyViewer } from "@/components/anatomy/BodyViewer";
 import { SourceBadge, Spinner, StatusDot } from "@/components/ui/primitives";
+import { useTech } from "@/components/ui/tech";
 import type { AnalysisResult, CareGuidance, OrganId } from "@/domain/types";
 
 export type FlagState = { status: "idle" | "saving" | "created" | "exists" | "error"; message?: string };
 
 function Guidance({ guidance }: { guidance: CareGuidance }) {
+  const tech = useTech();
   return <section className={`card guidance guidance-${guidance.level.toLowerCase()}`} id="guidance">
     <span className="eyebrow">What you can do</span>
     <h3>{guidance.title}</h3>
@@ -16,14 +18,15 @@ function Guidance({ guidance }: { guidance: CareGuidance }) {
       <b>Seek urgent medical help if you notice:</b>
       <ul>{guidance.seekUrgentCareIf.map((s) => <li key={s}>{s}</li>)}</ul>
     </div>}
-    <p className="fine">Guidance from MediTwin&apos;s reviewed content set ({guidance.contentId}). It isn&apos;t written by AI.</p>
+    <p className="fine">Guidance from MediTwin&apos;s reviewed content{tech ? ` set (${guidance.contentId})` : ""}. It isn&apos;t written by AI.</p>
   </section>;
 }
 
-export function Insight({ result, name, canFlag, onEditSymptoms, onSummary, onWhatIf, canSimulate, onFlag, flag, tourTarget }: {
+export function Insight({ result, name, canFlag, onEditSymptoms, onSummary, onWhatIf, canSimulate, onFlag, flag, tourTarget, onAsk }: {
   result: AnalysisResult; name: string; canFlag: boolean; onEditSymptoms: () => void; onSummary: () => void; onWhatIf: () => void; canSimulate: boolean;
-  onFlag: () => void; flag: FlagState; tourTarget?: string | null;
+  onFlag: () => void; flag: FlagState; tourTarget?: string | null; onAsk: () => void;
 }) {
+  const tech = useTech();
   const [selectedOrgan, setSelectedOrgan] = useState<OrganId | null>(null);
   const { primary, explanation, guidance } = result;
   const evidence = primary?.evidence ?? [];
@@ -36,8 +39,9 @@ export function Insight({ result, name, canFlag, onEditSymptoms, onSummary, onWh
     <header className={`insight-hero insight-${(primary?.type ?? "none").toLowerCase()}`}>
       <span className="eyebrow">Your health context</span>
       <h2>{urgent ? "Please get medical help now." : primary?.type === "ATTENTION" ? "We found an attention signal." : primary ? "We found something to mention." : "No health signal from what you shared."}</h2>
-      {primary && <p>{primary.systemLabel} system · {supporting.length} evidence item{supporting.length === 1 ? "" : "s"} · rule {primary.ruleId}</p>}
+      {primary && <p>{primary.systemLabel} system · based on {supporting.length} piece{supporting.length === 1 ? "" : "s"} of evidence{tech ? ` · rule ${primary.ruleId}` : ""}</p>}
       <div className="insight-actions">
+        {!urgent && <button className="button button-light" onClick={onAsk}>✦ Ask the assistant about this</button>}
         <button className="button button-ghost" onClick={onEditSymptoms}>Change symptoms</button>
         {!urgent && <button className="button button-ghost" onClick={onSummary}>Prepare visit summary</button>}
         {!urgent && canSimulate && <button className="button button-ghost" onClick={onWhatIf}>What-if projection</button>}
@@ -67,8 +71,8 @@ export function Insight({ result, name, canFlag, onEditSymptoms, onSummary, onWh
           <ul className="evidence-bullets">
             {supporting.slice(0, 5).map((e) => <li key={e.id}>{e.label}</li>)}
           </ul>
-          <p className="fine">Rule {primary.ruleId}: {primary.rule}</p>
-          {result.phenotype && <p className="fine">HOLON phenotype similarity with “{result.phenotype.matchedWith}”: {result.phenotype.score.toFixed(2)}</p>}
+          {tech && <p className="fine">Rule {primary.ruleId}: {primary.rule}</p>}
+          {tech && result.phenotype && <p className="fine">HOLON phenotype similarity with “{result.phenotype.matchedWith}”: {result.phenotype.score.toFixed(2)}</p>}
         </section>}
 
         <section className={`card explanation${tourTarget === "explanation" ? " tour-highlight" : ""}`} id="explanation">
@@ -80,7 +84,7 @@ export function Insight({ result, name, canFlag, onEditSymptoms, onSummary, onWh
           </p>)}
           <div className={`generator generator-${explanation.source === "MODEL_INFERRED" ? "ai" : "template"}`}>
             <b>{explanation.source === "MODEL_INFERRED" ? "Written by AI from the evidence below" : "Reviewed template"}</b>
-            <span>{explanation.generator} · {explanation.safety.checks.length} safety rules passed{explanation.safety.fallbackReason ? ` · ${explanation.safety.fallbackReason}` : ""}</span>
+            <span>{tech ? `${explanation.generator} · ${explanation.safety.checks.length} safety rules passed${explanation.safety.fallbackReason ? ` · ${explanation.safety.fallbackReason}` : ""}` : `Checked against ${explanation.safety.checks.length} safety rules before it was shown`}</span>
           </div>
           <p className="disclaimer">{explanation.disclaimer}</p>
           {evidence.length > 0 && <details className="why" open>
@@ -108,7 +112,9 @@ export function Insight({ result, name, canFlag, onEditSymptoms, onSummary, onWh
       <div>
         <span className="eyebrow">Share with the digital twin</span>
         <h3>Save this signal to {name} twin</h3>
-        <p className="muted">Writes a clinical note back to the OntoMorph twin (twin.flag), so the signal becomes part of the record other tools and clinicians can see. MediTwin recomputes the signal on the server before writing.</p>
+        <p className="muted">{tech
+          ? "Writes a clinical note back to the OntoMorph twin (twin.flag), so the signal becomes part of the record other tools and clinicians can see. MediTwin recomputes the signal on the server before writing."
+          : "Adds a note about this result to the twin's record, so it's there next time you or a clinician look."}</p>
         {flag.message && <p className={flag.status === "error" ? "error-text" : "success-text"} role="status">{flag.message}</p>}
       </div>
       <button className="button" onClick={onFlag} disabled={flag.status === "saving" || flag.status === "created" || flag.status === "exists"}>
@@ -118,7 +124,7 @@ export function Insight({ result, name, canFlag, onEditSymptoms, onSummary, onWh
 
     {result.signals.length > 1 && <section className="card other-signals">
       <span className="eyebrow">Other signals</span>
-      <ul>{result.signals.slice(1).map((s) => <li key={s.id}><StatusDot status={s.type} /><b>{s.title}</b><span>{s.evidence.length} evidence item{s.evidence.length === 1 ? "" : "s"} · {s.ruleId}</span></li>)}</ul>
+      <ul>{result.signals.slice(1).map((s) => <li key={s.id}><StatusDot status={s.type} /><b>{s.title}</b><span>{s.evidence.length} evidence item{s.evidence.length === 1 ? "" : "s"}{tech ? ` · ${s.ruleId}` : ""}</span></li>)}</ul>
     </section>}
   </div>;
 }

@@ -294,5 +294,55 @@ export const GUIDANCE: Record<string, GuidanceContent> = {
   },
 };
 
+// ---- Emergency phrases in free text (assistant) ------------------------------------------------
+// Checked before any message reaches the AI. A match returns reviewed guidance and the model is
+// never called, so emergencies never depend on what a model writes.
+
+export interface EmergencyPhraseRule {
+  id: string;
+  description: string;
+  pattern: RegExp;
+  guidanceId: string;
+}
+
+export const EMERGENCY_PHRASES: EmergencyPhraseRule[] = [
+  { id: "RF-TEXT-CHEST", description: "Chest pain with breathlessness, sweating, fainting or pain spreading",
+    pattern: /\bchest (?:pain|tightness|pressure)\b[^.!?]{0,80}\b(?:breath|breathe|breathing|sweat|sweating|faint|dizzy|arm|jaw|back|vomit)|\b(?:breath|breathe|breathing|sweat|sweating|faint|dizzy|arm|jaw)\b[^.!?]{0,80}\bchest (?:pain|tightness|pressure)\b|\b(?:severe|crushing|terrible|very bad|worst) chest pain\b/i,
+    guidanceId: "urgent-chest" },
+  { id: "RF-TEXT-BREATH", description: "Severe difficulty breathing",
+    pattern: /\b(?:can(?:no|')?t|cannot|unable to|struggling to|hard to) (?:breathe|catch my breath)\b|\b(?:choking|lips (?:are |turning )?(?:blue|grey|gray))\b/i,
+    guidanceId: "urgent-breathing" },
+  { id: "RF-TEXT-STROKE", description: "Possible stroke, seizure, collapse or heavy bleeding",
+    pattern: /\b(?:face (?:is )?drooping|slurred speech|(?:sudden )?(?:weakness|numbness) (?:in|on) one side|can(?:no|')?t (?:move|feel) (?:my|one) (?:arm|leg|side)|seizure|convulsing|fitting|unconscious|passed out|won'?t wake up|not waking up|coughing (?:up )?blood|vomiting blood|heavy bleeding|bleeding (?:a lot|heavily|won'?t stop))\b/i,
+    guidanceId: "urgent-general" },
+  { id: "RF-TEXT-CRISIS", description: "Thoughts of suicide or self-harm",
+    pattern: /\b(?:kill(?:ing)? myself|suicid\w*|end (?:my|it all)|take my (?:own )?life|want to die|self[- ]harm|hurt(?:ing)? myself|don'?t want to (?:live|be alive))\b/i,
+    guidanceId: "urgent-crisis" },
+];
+
+GUIDANCE["urgent-general"] = {
+  id: "urgent-general", level: "URGENT", title: "Get emergency help now",
+  steps: [
+    "Call your local emergency number, or go to the nearest emergency department now.",
+    "Don't drive yourself. Ask someone to take you or wait for an ambulance.",
+    "If someone is unconscious or having a seizure, stay with them, keep them safe from injury and don't put anything in their mouth.",
+  ],
+  seekUrgentCareIf: [],
+};
+
+GUIDANCE["urgent-crisis"] = {
+  id: "urgent-crisis", level: "URGENT", title: "You deserve support right now",
+  steps: [
+    "If you might act on these thoughts, call your local emergency number or go to the nearest emergency department now.",
+    "Reach out to someone you trust and tell them how you're feeling. You don't have to go through this alone.",
+    "Contact a crisis line or mental health service in your area. They're there to listen, any time.",
+  ],
+  seekUrgentCareIf: [],
+};
+
+export function matchEmergencyText(text: string): EmergencyPhraseRule | null {
+  return EMERGENCY_PHRASES.find((rule) => rule.pattern.test(text)) ?? null;
+}
+
 export const DISCLAIMER =
   "This is not a diagnosis. MediTwin explains how your records and symptoms relate to each other. It doesn't replace a healthcare professional.";

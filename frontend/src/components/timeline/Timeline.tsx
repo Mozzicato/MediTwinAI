@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MeasurementStatus } from "@/components/ui/primitives";
+import { useTech } from "@/components/ui/tech";
 import type { Measurement, TwinView } from "@/domain/types";
 import { longDate, monthLabel, shortDate } from "@/lib/format";
 
@@ -11,6 +12,7 @@ export function Timeline({ twin, onOpenMeasurement, onRefresh, refreshing }: {
   twin: TwinView; onOpenMeasurement: (m: Measurement) => void; onRefresh: () => void; refreshing: boolean;
 }) {
   const [filter, setFilter] = useState<string>("all");
+  const tech = useTech();
   const [showCodes, setShowCodes] = useState(false);
   const events = twin.events.filter((e) => filter === "all" || e.system === filter);
   const groups = new Map<string, typeof events>();
@@ -20,7 +22,7 @@ export function Timeline({ twin, onOpenMeasurement, onRefresh, refreshing }: {
     <div className="card-head">
       <div><span className="eyebrow">Health timeline</span><h3>{twin.events.length} events</h3></div>
       <div className="timeline-tools">
-        <label className="toggle"><input type="checkbox" checked={showCodes} onChange={(e) => setShowCodes(e.target.checked)} /> Show clinical codes</label>
+        {tech && <label className="toggle"><input type="checkbox" checked={showCodes} onChange={(e) => setShowCodes(e.target.checked)} /> Show clinical codes</label>}
         <button className="button button-small" onClick={onRefresh} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh"}</button>
       </div>
     </div>
@@ -41,7 +43,7 @@ export function Timeline({ twin, onOpenMeasurement, onRefresh, refreshing }: {
               {m.label} <b>{m.value} {m.unit}</b> <MeasurementStatus status={m.status} />
             </button>)}
           </div>}
-          {showCodes && e.concepts.length > 0 && <ul className="codes">
+          {tech && showCodes && e.concepts.length > 0 && <ul className="codes">
             {e.concepts.map((c) => <li key={c.vocabulary + c.code}>
               <code>{c.vocabulary} {c.code}</code> {c.resolved ? <span>→ {c.name}</span> : <span className="muted">not resolved in HOLON</span>}
             </li>)}

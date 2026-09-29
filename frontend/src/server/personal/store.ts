@@ -7,7 +7,7 @@ import { db } from "../db";
 // Persistence for a person's own data. Every health value, note, symptom and grant token is
 // encrypted before it is written; only ids, timestamps and routing fields are stored in clear.
 
-export const CONSENT_VERSION = "2026-09-v2";
+export const CONSENT_VERSION = "2026-09-v3";
 
 const now = () => new Date().toISOString();
 

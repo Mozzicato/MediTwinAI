@@ -12,11 +12,15 @@ export function monthLabel(iso: string) {
   return new Date(iso).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
+/** UCUM units as people write them, e.g. mm[Hg] → mmHg. */
+export const displayUnit = (unit: string) => unit.replace("mm[Hg]", "mmHg");
+
 export function rangeText(m: Measurement) {
   const r = m.reference;
   if (!r) return null;
-  if (r.low !== null && r.high !== null) return `${r.low}–${r.high} ${r.unit}`;
-  return r.high !== null ? `< ${r.high} ${r.unit}` : `> ${r.low} ${r.unit}`;
+  const unit = displayUnit(r.unit);
+  if (r.low !== null && r.high !== null) return `${r.low}–${r.high} ${unit}`;
+  return r.high !== null ? `< ${r.high} ${unit}` : `> ${r.low} ${unit}`;
 }
 
 export const STATUS_TEXT: Record<Measurement["status"], string> = {
